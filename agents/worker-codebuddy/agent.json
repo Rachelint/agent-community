@@ -4,7 +4,7 @@
   "kind": "worker",
   "command": "codebuddy",
   "args": ["--print", "-y", "--model", "claude-opus-4.7-1m"],
-  "cwd": "${run.workspace}/repo",
+  "cwd": "${issue.workspace}/repo",
   "env": {},
   "protocol": "jsonrpc-stdio",
   "timeout_ms": 3600000,

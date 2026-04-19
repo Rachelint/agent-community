@@ -167,6 +167,24 @@ func (s *Store) MarkRunOrphan(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListRunningRuns returns all runs with status='running'.
+func (s *Store) ListRunningRuns(ctx context.Context) ([]WorkerRun, error) {
+	rows, err := s.DB.QueryContext(ctx, runSelect+` WHERE status = 'running'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []WorkerRun{}
+	for rows.Next() {
+		r, err := scanRun(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *r)
+	}
+	return out, rows.Err()
+}
+
 // ---- helpers --------------------------------------------------------------
 
 const runSelect = `

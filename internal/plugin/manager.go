@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -95,12 +96,13 @@ func (m *Manager) LoadManifestByName(name string) (*Manifest, error) {
 
 // SpawnArgs carries everything needed to kick off a worker run.
 type SpawnArgs struct {
-	Manifest     *Manifest
-	RunID        string
-	WorkspaceDir string // absolute
-	BrainDir     string // project repo_local, may be empty
-	Prompt       string // sent on stdin as a worker.start params.prompt
-	Extra        map[string]string
+	Manifest          *Manifest
+	RunID             string
+	IssueWorkspaceDir string // per-issue workspace (contains repo/ and runs/)
+	RunDir            string // per-run directory inside issue workspace
+	BrainDir          string // project repo_local, may be empty
+	Prompt            string // sent on stdin as a worker.start params.prompt
+	Extra             map[string]string
 }
 
 // Spawn launches the agent process.
@@ -127,19 +129,21 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 	if a.Manifest == nil {
 		return 0, errors.New("manifest required")
 	}
-	if a.WorkspaceDir == "" {
-		return 0, errors.New("workspace dir required")
+	if a.RunDir == "" {
+		return 0, errors.New("run dir required")
 	}
-	if err := os.MkdirAll(filepath.Join(a.WorkspaceDir, "logs"), 0o755); err != nil {
+	if err := os.MkdirAll(a.RunDir, 0o755); err != nil {
 		return 0, err
 	}
 
 	vars := map[string]string{
-		"run.id":        a.RunID,
-		"run.workspace": a.WorkspaceDir,
-		"brain.dir":     a.BrainDir,
-		"topic.dir":     a.WorkspaceDir, // aliased for chat agents later
-		"agent.dir":     filepath.Dir(a.Manifest.Path()),
+		"run.id":          a.RunID,
+		"run.workspace":   a.IssueWorkspaceDir, // backwards compat alias
+		"run.dir":         a.RunDir,
+		"issue.workspace": a.IssueWorkspaceDir,
+		"brain.dir":       a.BrainDir,
+		"topic.dir":       a.IssueWorkspaceDir, // aliased for chat agents later
+		"agent.dir":       filepath.Dir(a.Manifest.Path()),
 	}
 	for k, v := range a.Extra {
 		vars[k] = v
@@ -150,7 +154,7 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 		return 0, fmt.Errorf("expand cwd: %w", err)
 	}
 	if cwd == "" {
-		cwd = a.WorkspaceDir
+		cwd = a.IssueWorkspaceDir
 	}
 
 	args := make([]string, 0, len(a.Manifest.Args))
@@ -171,12 +175,12 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 	if err != nil {
 		return 0, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return 0, err
 	}
 	// stderr straight to file; we never parse it.
-	stderrFile, err := os.Create(filepath.Join(a.WorkspaceDir, "logs", "stderr.log"))
+	stderrFile, err := os.Create(filepath.Join(a.RunDir, "stderr.log"))
 	if err != nil {
 		return 0, err
 	}
@@ -187,10 +191,7 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 		return 0, err
 	}
 
-	// Send worker.start on stdin, then close it. Closing stdin is a
-	// signal to scripts that expect line-buffered reads and exit when
-	// input ends; real workers that want bidirectional control should
-	// not depend on stdin staying open in phase 3.
+	// Send worker.start on stdin, then close it.
 	go func() {
 		defer stdin.Close()
 		payload := map[string]any{
@@ -198,7 +199,8 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 			"method":  "worker.start",
 			"params": map[string]any{
 				"run_id":       a.RunID,
-				"workspace":    a.WorkspaceDir,
+				"workspace":    a.IssueWorkspaceDir,
+				"run_dir":      a.RunDir,
 				"brain_dir":    a.BrainDir,
 				"prompt":       a.Prompt,
 				"callback_url": m.callbackURL,
@@ -208,13 +210,24 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 		_ = json.NewEncoder(stdin).Encode(payload)
 	}()
 
+	// Open stdout log file for tee-ing.
+	stdoutFile, err := os.Create(filepath.Join(a.RunDir, "stdout.log"))
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = stderrFile.Close()
+		return 0, err
+	}
+
 	readyCh := make(chan struct{}, 1)
 	failCh := make(chan error, 1)
 
-	// Reader goroutine: consume stdout lines as JSON-RPC notifications
-	// and wait for "worker.ready" to close readyCh.
+	// Reader goroutine: tee stdout to file AND scan for worker.ready.
 	go func() {
-		scanner := bufio.NewScanner(stdout)
+		defer stdoutFile.Close()
+		// Use TeeReader so every byte read by the scanner is also
+		// written to the log file.
+		tee := io.TeeReader(stdoutPipe, stdoutFile)
+		scanner := bufio.NewScanner(tee)
 		scanner.Buffer(make([]byte, 1<<16), 1<<22)
 		for scanner.Scan() {
 			line := scanner.Bytes()
@@ -234,18 +247,15 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 				default:
 				}
 			}
-			// Other methods are received via HTTP callbacks, not
-			// stdout. This reader exists mainly so we notice malformed
-			// plugins and so that Go doesn't block on the pipe.
 		}
 	}()
 
-	// Watcher goroutine: if the process exits before we see ready,
-	// surface the error on failCh so Spawn returns.
+	// Watcher goroutine: only used to detect early exit before ready.
+	// After Spawn returns, the process runs independently — the
+	// reconciler detects completion via done.json.
 	go func() {
 		err := cmd.Wait()
 		_ = stderrFile.Close()
-		m.forget(a.RunID)
 		slog.Debug("plugin process exited", "run_id", a.RunID, "err", err)
 		if err != nil {
 			failCh <- fmt.Errorf("process exited: %w", err)
@@ -341,16 +351,19 @@ func buildEnv(a SpawnArgs, callbackURL, token string) []string {
 	env := os.Environ()
 	env = append(env,
 		"AC_RUN_ID="+a.RunID,
-		"AC_WORKSPACE="+a.WorkspaceDir,
+		"AC_WORKSPACE="+a.IssueWorkspaceDir,
+		"AC_RUN_DIR="+a.RunDir,
 		"AC_BRAIN_DIR="+a.BrainDir,
 		"AC_CALLBACK_URL="+callbackURL,
 		"AC_PLUGIN_TOKEN="+token,
 	)
 	for k, v := range a.Manifest.Env {
 		expanded, err := ExpandPlaceholders(v, map[string]string{
-			"run.id":        a.RunID,
-			"run.workspace": a.WorkspaceDir,
-			"brain.dir":     a.BrainDir,
+			"run.id":          a.RunID,
+			"run.workspace":   a.IssueWorkspaceDir,
+			"run.dir":         a.RunDir,
+			"issue.workspace": a.IssueWorkspaceDir,
+			"brain.dir":       a.BrainDir,
 		})
 		if err != nil {
 			// Fall back to literal value; spawn validation already ran

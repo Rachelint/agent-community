@@ -4,7 +4,7 @@
   "kind": "worker",
   "command": "bash",
   "args": ["${agent.dir}/entrypoint.sh"],
-  "cwd": "${run.workspace}",
+  "cwd": "${issue.workspace}",
   "protocol": "jsonrpc-stdio",
   "timeout_ms": 60000,
   "capabilities": ["worker.run"]

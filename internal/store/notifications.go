@@ -109,3 +109,53 @@ func (s *Store) ListNotifications(ctx context.Context, projectID string, unreadO
 	}
 	return out, rows.Err()
 }
+
+// MarkNotificationRead sets read_at on a notification. Idempotent.
+func (s *Store) MarkNotificationRead(ctx context.Context, id string) error {
+	now := time.Now().UnixMilli()
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL
+	`, now, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// Check if it exists at all.
+		var exists int
+		if err := s.DB.QueryRowContext(ctx, `SELECT 1 FROM notifications WHERE id = ?`, id).Scan(&exists); err != nil {
+			return ErrNotFound
+		}
+	}
+	return nil
+}
+
+// ArchiveNotification sets archived_at on a notification. Idempotent.
+func (s *Store) ArchiveNotification(ctx context.Context, id string) error {
+	now := time.Now().UnixMilli()
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE notifications SET archived_at = ? WHERE id = ? AND archived_at IS NULL
+	`, now, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		var exists int
+		if err := s.DB.QueryRowContext(ctx, `SELECT 1 FROM notifications WHERE id = ?`, id).Scan(&exists); err != nil {
+			return ErrNotFound
+		}
+	}
+	return nil
+}
+
+// CountUnreadNotifications returns the number of unread, unarchived
+// notifications for a project.
+func (s *Store) CountUnreadNotifications(ctx context.Context, projectID string) (int, error) {
+	var count int
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM notifications
+		WHERE project_id = ? AND read_at IS NULL AND archived_at IS NULL
+	`, projectID).Scan(&count)
+	return count, err
+}

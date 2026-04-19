@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RunDetail } from '../runs/RunDetail';
 import { IssueDetail } from './IssueDetail';
 import { IssuesList } from './IssuesList';
@@ -10,8 +10,23 @@ type View =
 
 // Phase-3 issues section. Routes between list / issue detail / run
 // detail purely via local state. URL routing comes in a later phase.
-export function IssuesSection({ projectId }: { projectId: string }) {
+export function IssuesSection({
+  projectId,
+  initialIssueId,
+  onConsumeInitialIssue,
+}: {
+  projectId: string;
+  initialIssueId?: string | null;
+  onConsumeInitialIssue?: () => void;
+}) {
   const [view, setView] = useState<View>({ kind: 'list' });
+
+  useEffect(() => {
+    if (initialIssueId) {
+      setView({ kind: 'issue', id: initialIssueId });
+      onConsumeInitialIssue?.();
+    }
+  }, [initialIssueId, onConsumeInitialIssue]);
 
   if (view.kind === 'issue') {
     return (

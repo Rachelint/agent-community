@@ -33,9 +33,10 @@ func Register(r *gin.Engine, d Deps) {
 	registerLabels(apiG, d.Store)
 	registerIssues(apiG, d.Store)
 	registerRuns(apiG, d)
+	registerNotifications(apiG, d.Store)
 
 	pluginG := r.Group("/plugin", pluginAuth(d.Plugin))
-	registerPluginCallbacks(pluginG, d)
+	registerPluginRoutes(pluginG)
 }
 
 func healthz(c *gin.Context) {

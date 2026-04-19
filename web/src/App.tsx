@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Sidebar, type Section } from './components/Sidebar';
 import { ProjectDetail } from './features/projects/ProjectDetail';
 import { IssuesSection } from './features/issues/IssuesSection';
+import { MailboxSection } from './features/mailbox/MailboxSection';
 
 export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<Section>('issues');
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
   // When switching projects, snap back to the issues view.
   useEffect(() => {
@@ -24,7 +26,19 @@ export default function App() {
         {!activeProjectId ? (
           <ProjectDetail projectId={null} />
         ) : activeSection === 'issues' ? (
-          <IssuesSection projectId={activeProjectId} />
+          <IssuesSection
+            projectId={activeProjectId}
+            initialIssueId={selectedIssueId}
+            onConsumeInitialIssue={() => setSelectedIssueId(null)}
+          />
+        ) : activeSection === 'mailbox' ? (
+          <MailboxSection
+            projectId={activeProjectId}
+            onSelectIssue={(issueId) => {
+              setSelectedIssueId(issueId);
+              setActiveSection('issues');
+            }}
+          />
         ) : (
           <ProjectDetail projectId={activeProjectId} />
         )}

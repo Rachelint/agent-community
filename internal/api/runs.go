@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 
@@ -103,11 +105,36 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			internalError(c, err)
 			return
 		}
-		workspace := filepath.Join(d.WorkspacesDir, runID.String())
-		if err := os.MkdirAll(workspace, 0o755); err != nil {
+
+		// Per-issue workspace layout:
+		//   workspaces/issues/<issue-id>/repo/     (git worktree)
+		//   workspaces/issues/<issue-id>/runs/<run-id>/
+		issueWorkspace := filepath.Join(d.WorkspacesDir, "issues", iss.ID)
+		runDir := filepath.Join(issueWorkspace, "runs", runID.String())
+		if err := os.MkdirAll(runDir, 0o755); err != nil {
 			internalError(c, err)
 			return
 		}
+
+		// Create git worktree on first dispatch for this issue.
+		repoDir := filepath.Join(issueWorkspace, "repo")
+		if _, err := os.Stat(repoDir); errors.Is(err, os.ErrNotExist) {
+			branchName := fmt.Sprintf("agent/issue-%d", iss.Number)
+			wtCmd := exec.Command("git", "worktree", "add", repoDir, "-b", branchName, proj.DefaultBranch)
+			wtCmd.Dir = proj.RepoLocal
+			if out, err := wtCmd.CombinedOutput(); err != nil {
+				// Branch may already exist from a previous dispatch; retry without -b.
+				slog.Info("git worktree add with -b failed, retrying without",
+					"err", err, "output", string(out))
+				wtCmd2 := exec.Command("git", "worktree", "add", repoDir, branchName)
+				wtCmd2.Dir = proj.RepoLocal
+				if out2, err2 := wtCmd2.CombinedOutput(); err2 != nil {
+					internalError(c, fmt.Errorf("git worktree add: %w: %s", err2, string(out2)))
+					return
+				}
+			}
+		}
+
 		prompt := req.Prompt
 		if prompt == "" {
 			prompt = iss.Title
@@ -117,13 +144,13 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 		}
 		// Persist the prompt so a failed run still has the input
 		// recorded.
-		_ = os.WriteFile(filepath.Join(workspace, "prompt.md"), []byte(prompt), 0o644)
+		_ = os.WriteFile(filepath.Join(runDir, "prompt.md"), []byte(prompt), 0o644)
 
 		run, err := d.Store.CreateRun(c.Request.Context(), runID.String(), store.RunCreate{
 			IssueID:      iss.ID,
 			ProjectID:    iss.ProjectID,
 			Plugin:       req.Plugin,
-			WorkspaceDir: workspace,
+			WorkspaceDir: runDir,
 		})
 		if err != nil {
 			internalError(c, err)
@@ -131,11 +158,12 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 		}
 
 		pid, err := d.Plugin.Spawn(c.Request.Context(), plugin.SpawnArgs{
-			Manifest:     manifest,
-			RunID:        run.ID,
-			WorkspaceDir: workspace,
-			BrainDir:     proj.RepoLocal,
-			Prompt:       prompt,
+			Manifest:          manifest,
+			RunID:             run.ID,
+			IssueWorkspaceDir: issueWorkspace,
+			RunDir:            runDir,
+			BrainDir:          proj.RepoLocal,
+			Prompt:            prompt,
 		})
 		if err != nil {
 			// Flip straight to failed; no complete callback will arrive.
@@ -274,7 +302,7 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 		if limit > 1<<20 {
 			limit = 1 << 20
 		}
-		path := filepath.Join(r.WorkspaceDir, "logs", name)
+		path := filepath.Join(r.WorkspaceDir, name)
 		out, next, err := readLogRange(path, from, limit)
 		if err != nil {
 			internalError(c, err)

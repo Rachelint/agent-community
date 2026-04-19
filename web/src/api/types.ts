@@ -90,3 +90,16 @@ export type LogChunk = {
   next: number;
   chunk: string;
 };
+
+export type Notification = {
+  id: string;
+  project_id: string;
+  kind: string;
+  issue_id?: string | null;
+  run_id?: string | null;
+  title: string;
+  body?: string;
+  read_at?: number | null;
+  archived_at?: number | null;
+  created_at: number;
+};

@@ -7,6 +7,7 @@ import type {
   IssueFilter,
   Label,
   LogChunk,
+  Notification,
   Project,
   WorkerRun,
 } from './types';
@@ -23,6 +24,9 @@ export const qk = {
   issueComments: (id: string) => ['issue', id, 'comments'] as const,
   issueRuns: (id: string) => ['issue', id, 'runs'] as const,
   run: (id: string) => ['run', id] as const,
+  notifications: (pid: string, unread?: boolean) =>
+    ['notifications', pid, { unread: unread ?? false }] as const,
+  notificationCount: (pid: string) => ['notification_count', pid] as const,
 };
 
 // ---- projects -------------------------------------------------------------
@@ -298,6 +302,66 @@ export function fetchLogChunk(
   );
 }
 
+// ---- notifications --------------------------------------------------------
+export function useNotifications(
+  projectId: string | null,
+  unreadOnly = false,
+) {
+  const params = unreadOnly ? '?unread=true' : '';
+  return useQuery({
+    enabled: !!projectId,
+    queryKey: qk.notifications(projectId ?? '', unreadOnly),
+    queryFn: () =>
+      apiFetch<Notification[]>(
+        `/api/projects/${projectId}/notifications${params}`,
+      ),
+    refetchInterval: 30000,
+  });
+}
+
+export function useNotificationCount(projectId: string | null) {
+  return useQuery({
+    enabled: !!projectId,
+    queryKey: qk.notificationCount(projectId ?? ''),
+    queryFn: () =>
+      apiFetch<{ count: number }>(
+        `/api/projects/${projectId}/notifications/count`,
+      ),
+    refetchInterval: 15000,
+  });
+}
+
+export function useMarkNotificationRead(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/notifications/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ read: true }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications', projectId] });
+      qc.invalidateQueries({ queryKey: qk.notificationCount(projectId) });
+    },
+  });
+}
+
+export function useArchiveNotification(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/notifications/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ archived: true }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications', projectId] });
+      qc.invalidateQueries({ queryKey: qk.notificationCount(projectId) });
+    },
+  });
+}
+
+// ---- agents ---------------------------------------------------------------
 export function useReloadAgents() {
   const qc = useQueryClient();
   return useMutation({

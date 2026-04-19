@@ -16,6 +16,7 @@ import (
 	"github.com/Rachelint/agent-community/internal/api"
 	"github.com/Rachelint/agent-community/internal/config"
 	"github.com/Rachelint/agent-community/internal/plugin"
+	"github.com/Rachelint/agent-community/internal/reconcile"
 	"github.com/Rachelint/agent-community/internal/store"
 )
 
@@ -58,6 +59,11 @@ func main() {
 		slog.Error("create workspaces dir", "err", err)
 		os.Exit(1)
 	}
+
+	// Start the reconciler that polls for done.json / dead processes.
+	rec := reconcile.New(st, pm, 5*time.Second)
+	rec.Run()
+	defer rec.Stop()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

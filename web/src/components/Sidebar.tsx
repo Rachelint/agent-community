@@ -1,3 +1,4 @@
+import { useNotificationCount } from '../api/hooks';
 import { ProjectSwitcher } from '../features/projects/ProjectSwitcher';
 
 export type Section = 'issues' | 'chat' | 'mailbox';
@@ -17,13 +18,15 @@ export function Sidebar({
   activeSection,
   onSelectSection,
 }: Props) {
+  const { data: countData } = useNotificationCount(activeProjectId);
+  const unreadCount = countData?.count ?? 0;
   return (
     <aside className="flex h-full w-64 flex-col border-r border-border bg-canvas-subtle">
       <div className="flex items-center gap-2 border-b border-border px-3 py-3">
         <div className="h-5 w-5 rounded bg-fg" />
         <div className="flex-1">
           <h1 className="text-sm font-semibold leading-none">agent-community</h1>
-          <p className="mt-0.5 text-[10px] text-muted">phase 2 · issues</p>
+          <p className="mt-0.5 text-[10px] text-muted">phase 4</p>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -49,8 +52,7 @@ export function Sidebar({
               label="Mailbox"
               active={activeSection === 'mailbox'}
               onClick={() => onSelectSection('mailbox')}
-              disabled
-              hint="phase 4"
+              badge={unreadCount > 0 ? unreadCount : undefined}
             />
           </nav>
         ) : null}
@@ -65,12 +67,14 @@ function SectionButton({
   onClick,
   disabled,
   hint,
+  badge,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   disabled?: boolean;
   hint?: string;
+  badge?: number;
 }) {
   return (
     <button
@@ -86,9 +90,16 @@ function SectionButton({
       }`}
     >
       <span>{label}</span>
-      {hint ? (
-        <span className="text-[10px] font-normal text-muted">{hint}</span>
-      ) : null}
+      <span className="flex items-center gap-1.5">
+        {badge ? (
+          <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-white">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        ) : null}
+        {hint ? (
+          <span className="text-[10px] font-normal text-muted">{hint}</span>
+        ) : null}
+      </span>
     </button>
   );
 }
