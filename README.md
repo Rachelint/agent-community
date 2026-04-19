@@ -4,9 +4,8 @@
 
 A local-first collaboration hub for dispatching work to coding agents.
 
-Replaces the `/dev` skill workflow with a proper web app: chat with an
-assistant to shape ideas into issues, assign issues to worker agents, and
-review results via a GitHub-style mailbox.
+Chat with an assistant to shape ideas into issues, assign issues to
+worker agents, and review results via a GitHub-style mailbox.
 
 ## Status
 
@@ -57,7 +56,6 @@ on the next manager sweep.
   messages, issues, labels, comments, worker_runs, notifications.
 - **Filesystem** holds bulky content: per-run workspace (git worktree,
   prompt, artifacts, raw stdout/stderr/events logs).
-- No `tb`, no `rsync`, no tmux.
 
 ### Stack
 
