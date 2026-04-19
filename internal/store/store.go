@@ -155,3 +155,20 @@ func applyMigration(ctx context.Context, db *sql.DB, version int, name, sqlText 
 
 // ErrNotFound indicates a query expected at least one row but got none.
 var ErrNotFound = errors.New("not found")
+
+// ErrConflict indicates a uniqueness constraint violation (e.g. duplicate
+// label name within a project).
+var ErrConflict = errors.New("conflict")
+
+// isUniqueViolation matches the modernc.org/sqlite driver's error text
+// for UNIQUE constraint failures. It is intentionally string-based —
+// the driver does not expose stable numeric error codes through
+// database/sql.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") ||
+		strings.Contains(msg, "constraint failed: UNIQUE")
+}

@@ -59,8 +59,8 @@ func registerProjects(g *gin.RouterGroup, st *store.Store) {
 		c.JSON(http.StatusCreated, p)
 	})
 
-	g.GET("/projects/:id", func(c *gin.Context) {
-		p, err := st.GetProject(c.Request.Context(), c.Param("id"))
+	g.GET("/projects/:pid", func(c *gin.Context) {
+		p, err := st.GetProject(c.Request.Context(), c.Param("pid"))
 		if errors.Is(err, store.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -72,8 +72,8 @@ func registerProjects(g *gin.RouterGroup, st *store.Store) {
 		c.JSON(http.StatusOK, p)
 	})
 
-	g.DELETE("/projects/:id", func(c *gin.Context) {
-		err := st.DeleteProject(c.Request.Context(), c.Param("id"))
+	g.DELETE("/projects/:pid", func(c *gin.Context) {
+		err := st.DeleteProject(c.Request.Context(), c.Param("pid"))
 		if errors.Is(err, store.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return

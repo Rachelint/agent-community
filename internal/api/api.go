@@ -21,6 +21,8 @@ func Register(r *gin.Engine, st *store.Store) {
 	apiG := r.Group("/api")
 	registerProjects(apiG, st)
 	registerAgentMembers(apiG, st)
+	registerLabels(apiG, st)
+	registerIssues(apiG, st)
 
 	// Plugin callback endpoints (phase 3).
 	r.Group("/plugin")
