@@ -41,7 +41,7 @@ When constraints conflict, use this order:
 
 ## Architectural conventions specific to this repo
 
-- Assistants and workers are **symmetric plugins** driven by the same
+- Chat agents and worker agents are **symmetric plugins** driven by the same
   manifest + JSON-RPC stdio protocol. Do not introduce a separate
   code path for one kind unless the protocol genuinely needs it.
 - **DB holds relational state; filesystem holds bulky content.** Run

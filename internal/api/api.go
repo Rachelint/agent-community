@@ -1,21 +1,30 @@
 // Package api wires HTTP handlers onto a Gin engine.
 //
-// Phase 0 only exposes /healthz. Later phases add REST routes under /api
-// and a WebSocket endpoint at /ws.
+// Routes are organised into sub-files by resource (projects.go,
+// agent_members.go, ...). Register is the single entry point called from
+// cmd/server/main.go.
 package api
 
 import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/Rachelint/agent-community/internal/store"
 )
 
-// Register attaches all routes to the given router.
-func Register(r *gin.Engine) {
+// Register attaches all routes to the given router. The store pointer is
+// threaded into handlers that need database access.
+func Register(r *gin.Engine, st *store.Store) {
 	r.GET("/healthz", healthz)
 
-	// Placeholder groups; populated in later phases.
-	r.Group("/api")
+	apiG := r.Group("/api")
+	registerProjects(apiG, st)
+	registerAgentMembers(apiG, st)
+	registerLabels(apiG, st)
+	registerIssues(apiG, st)
+
+	// Plugin callback endpoints (phase 3).
 	r.Group("/plugin")
 }
 

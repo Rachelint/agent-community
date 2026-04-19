@@ -8,9 +8,9 @@
 
 ## Phase 1 — Data layer + projects
 
-- Add sqlc + migrations runner
-- Tables: `projects`, `assistants` (registry)
-- REST: projects CRUD, assistants list/reload
+- SQLite (modernc.org/sqlite) + embedded migration runner
+- Tables: `projects`, `agent_members` (registry)
+- REST: projects CRUD, agent_members list/reload
 - Web: project switcher in sidebar
 
 ## Phase 2 — Issues domain
@@ -19,14 +19,14 @@
 - REST: issues/labels/comments CRUD, parent/child, filtering
 - Web: Issues list + detail pages (no worker yet)
 
-## Phase 3 — Plugin system + worker dispatch
+## Phase 3 — Agent runtime + worker dispatch
 
 - `internal/plugin`: manifest loader, process manager, JSON-RPC stdio
 - Tables: `worker_runs`
-- REST: dispatch issue → spawn worker; plugin callback API
+- REST: dispatch issue → spawn worker; agent callback API
   (`/plugin/runs/:id/log`, `/plugin/runs/:id/complete`)
 - FS layout: `~/.agent-community/workspaces/<run_id>/`
-- Minimal worker plugin manifest + a reference shell wrapper
+- Minimal worker agent manifest + a reference shell wrapper
 
 ## Phase 4 — Mailbox + run viewer
 
@@ -37,13 +37,13 @@
 ## Phase 5 — Chat (topics)
 
 - Tables: `topics`, `topic_messages`
-- Reuse plugin system for `kind: "chat"`
+- Reuse agent runtime for `kind: "chat"`
 - Web: Chat page with topic list + streaming message view
 
 ## Phase 6 — Topic ↔ Issue link + AI-drafted issues
 
 - Table: `topic_issues`
-- Action button in chat: assistant emits structured issue draft → user
+- Action button in chat: chat agent emits structured issue draft → user
   confirms → posted to Issues and linked back to topic
 
 ## Phase 7 — Polish
@@ -51,5 +51,5 @@
 - Keyboard shortcuts
 - Log search + filtering
 - Run rerun (continue with feedback)
-- Plugin hot reload
+- Agent manifest hot reload
 - Single-binary packaging

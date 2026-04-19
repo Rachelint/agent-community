@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Rachelint/agent-community/internal/api"
 	"github.com/Rachelint/agent-community/internal/config"
+	"github.com/Rachelint/agent-community/internal/store"
 )
 
 func main() {
@@ -22,11 +24,22 @@ func main() {
 
 	cfg := config.Load()
 
+	ctx, cancelStore := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStore()
+	dbPath := filepath.Join(cfg.DataDir, "db.sqlite")
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		slog.Error("open store", "err", err, "path", dbPath)
+		os.Exit(1)
+	}
+	defer func() { _ = st.Close() }()
+	slog.Info("store ready", "path", dbPath)
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	api.Register(r)
+	api.Register(r, st)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -47,9 +60,9 @@ func main() {
 	<-stop
 	slog.Info("shutting down")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
 }

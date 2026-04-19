@@ -4,7 +4,7 @@
 
 A local-first collaboration hub for dispatching work to coding agents.
 
-Chat with an assistant to shape ideas into issues, assign issues to
+Chat with an agent to shape ideas into issues, assign issues to
 worker agents, and review results via a GitHub-style mailbox.
 
 ## Status
@@ -17,18 +17,18 @@ UI are stubs.
 Three UI sections, all scoped per project:
 
 - **Chat** — topic-based chat rooms. Each requirement starts a topic; you
-  discuss approach with an assistant plugin, then publish the outcome as
-  linked issues. Archive/delete topics when done.
+  discuss approach with a chat agent, then publish the outcome as linked
+  issues. Archive/delete topics when done.
 - **Issues** — GitHub-style issues with flexible labels, parent/child
-  links, and assignee = a worker plugin. Dispatching an issue launches
+  links, and assignee = a worker agent. Dispatching an issue launches
   the worker.
 - **Mailbox** — worker completion notifications. Jump from a
   notification back to the originating topic to review.
 
-### Plugins (assistants + workers are symmetric)
+### Agents (chat + worker are symmetric)
 
 Both chat and worker agents are external processes described by a JSON
-manifest under `assistants/<name>/assistant.json`:
+manifest under `agents/<name>/agent.json`:
 
 ```json
 {
@@ -41,7 +41,7 @@ manifest under `assistants/<name>/assistant.json`:
 }
 ```
 
-The host spawns the process, verifies startup, then steps back. Plugins
+The host spawns the process, verifies startup, then steps back. Agents
 drive everything else via JSON-RPC over stdio:
 
 - `chat.delta` / `chat.done` for streaming chat replies
@@ -52,8 +52,9 @@ on the next manager sweep.
 
 ### Storage
 
-- **SQLite** (via sqlc) holds all relational state: projects, topics,
-  messages, issues, labels, comments, worker_runs, notifications.
+- **SQLite** (pure-Go driver) holds all relational state: projects,
+  agent members, topics, messages, issues, labels, comments,
+  worker_runs, notifications.
 - **Filesystem** holds bulky content: per-run workspace (git worktree,
   prompt, artifacts, raw stdout/stderr/events logs).
 
@@ -61,7 +62,7 @@ on the next manager sweep.
 
 | Layer    | Choice                                                   |
 | -------- | -------------------------------------------------------- |
-| Server   | Go 1.24 + Gin + sqlc + SQLite (modernc.org/sqlite)       |
+| Server   | Go 1.24 + Gin + SQLite (modernc.org/sqlite, pure Go)     |
 | Realtime | WebSocket + JSON Patch streams (per-channel)             |
 | UI       | React 18 + Vite + TS, TanStack Router/Query, shadcn/ui   |
 | Theme    | GitHub-style (light, neutral grays, subtle borders)      |
@@ -78,12 +79,10 @@ agent-community/
 │   ├── hub/             # websocket hub
 │   ├── plugin/          # manifest + JSON-RPC + process manager
 │   ├── service/         # domain services
-│   └── store/           # sqlc-generated queries
-├── db/
-│   ├── migrations/      # SQL migrations
-│   └── queries/         # sqlc input
+│   └── store/           # sqlite driver, migrations, queries
+│       └── migrations/  # embedded SQL migrations
 ├── web/                 # React SPA
-├── assistants/          # sample plugin manifests
+├── agents/              # sample agent manifests
 └── scripts/             # dev helpers
 ```
 
@@ -102,4 +101,4 @@ Server listens on `:8080`. In dev the Vite server at `:5173` proxies
 
 ## Roadmap
 
-See `ROADMAP.md` for phase plan. Current phase: **0 — skeleton**.
+See `ROADMAP.md` for phase plan. Current phase: **2 — issues**.
