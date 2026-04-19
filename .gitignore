@@ -22,10 +22,13 @@ web/vite.config.d.ts
 web/tailwind.config.js
 web/postcss.config.d.ts
 
-# Editors
+# Editors / AI assistants
 .idea/
 .vscode/
 *.swp
+# CodeBuddy: keep project-level CODEBUDDY.md at repo root, but never
+# commit per-user local settings, MCP tokens, or local skill state.
+.codebuddy/
 
 # OS
 .DS_Store

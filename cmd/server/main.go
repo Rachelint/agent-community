@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/ruiqiucao/agent-community/internal/api"
-	"github.com/ruiqiucao/agent-community/internal/config"
+	"github.com/Rachelint/agent-community/internal/api"
+	"github.com/Rachelint/agent-community/internal/config"
 )
 
 func main() {

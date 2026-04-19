@@ -1,5 +1,7 @@
 # agent-community
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A local-first collaboration hub for dispatching work to coding agents.
 
 Replaces the `/dev` skill workflow with a proper web app: chat with an

@@ -1,4 +1,4 @@
-module github.com/ruiqiucao/agent-community
+module github.com/Rachelint/agent-community
 
 go 1.25.0
 
