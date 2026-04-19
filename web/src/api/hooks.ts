@@ -6,7 +6,9 @@ import type {
   IssueComment,
   IssueFilter,
   Label,
+  LogChunk,
   Project,
+  WorkerRun,
 } from './types';
 
 export const qk = {
@@ -19,6 +21,8 @@ export const qk = {
     ['issues', pid, filter] as const,
   issue: (id: string) => ['issue', id] as const,
   issueComments: (id: string) => ['issue', id, 'comments'] as const,
+  issueRuns: (id: string) => ['issue', id, 'runs'] as const,
+  run: (id: string) => ['run', id] as const,
 };
 
 // ---- projects -------------------------------------------------------------
@@ -201,5 +205,109 @@ export function useCreateIssueComment(issueId: string) {
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: qk.issueComments(issueId) }),
+  });
+}
+
+// ---- runs -----------------------------------------------------------------
+// Runs auto-refresh while any run is in a non-terminal state so the UI
+// reflects worker progress without websocket support yet.
+const RUN_TERMINAL = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+  'needs_review',
+  'orphan',
+]);
+
+export function useIssueRuns(issueId: string | null) {
+  return useQuery({
+    enabled: !!issueId,
+    queryKey: qk.issueRuns(issueId ?? ''),
+    queryFn: () => apiFetch<WorkerRun[]>(`/api/issues/${issueId}/runs`),
+    refetchInterval: (q) => {
+      const data = q.state.data as WorkerRun[] | undefined;
+      if (!data) return 4000;
+      const active = data.some((r) => !RUN_TERMINAL.has(r.status));
+      return active ? 2000 : false;
+    },
+  });
+}
+
+export function useRun(runId: string | null) {
+  return useQuery({
+    enabled: !!runId,
+    queryKey: qk.run(runId ?? ''),
+    queryFn: () => apiFetch<WorkerRun>(`/api/runs/${runId}`),
+    refetchInterval: (q) => {
+      const data = q.state.data as WorkerRun | undefined;
+      if (!data) return 2000;
+      return RUN_TERMINAL.has(data.status) ? false : 2000;
+    },
+  });
+}
+
+export function useDispatch(issueId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { plugin: string; prompt?: string }) =>
+      apiFetch<WorkerRun>(`/api/issues/${issueId}/dispatch`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) });
+    },
+  });
+}
+
+export function useCancelRun(issueId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) =>
+      apiFetch<void>(`/api/runs/${runId}/cancel`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) }),
+  });
+}
+
+export function useProbeRun() {
+  return useMutation({
+    mutationFn: (runId: string) =>
+      apiFetch<{ alive: boolean; pid: number }>(
+        `/api/runs/${runId}/probe`,
+        { method: 'POST' },
+      ),
+  });
+}
+
+export function useMarkOrphan(issueId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) =>
+      apiFetch<void>(`/api/runs/${runId}/mark_orphan`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) }),
+  });
+}
+
+export function fetchLogChunk(
+  runId: string,
+  stream: 'stdout' | 'stderr' | 'events',
+  from: number,
+): Promise<LogChunk> {
+  return apiFetch<LogChunk>(
+    `/api/runs/${runId}/logs?stream=${stream}&from=${from}`,
+  );
+}
+
+export function useReloadAgents() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ loaded: number; disabled: string[] | null }>(
+        `/api/agent_members/reload`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent_members'] });
+    },
   });
 }

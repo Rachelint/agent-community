@@ -1,8 +1,8 @@
 // Package api wires HTTP handlers onto a Gin engine.
 //
 // Routes are organised into sub-files by resource (projects.go,
-// agent_members.go, ...). Register is the single entry point called from
-// cmd/server/main.go.
+// agent_members.go, ...). Register is the single entry point called
+// from cmd/server/main.go.
 package api
 
 import (
@@ -10,22 +10,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Rachelint/agent-community/internal/plugin"
 	"github.com/Rachelint/agent-community/internal/store"
 )
 
-// Register attaches all routes to the given router. The store pointer is
-// threaded into handlers that need database access.
-func Register(r *gin.Engine, st *store.Store) {
+// Deps bundles the handles every handler might need. Threading a
+// single struct keeps handler signatures small as new cross-cutting
+// dependencies (plugin manager, hub, ...) appear.
+type Deps struct {
+	Store         *store.Store
+	Plugin        *plugin.Manager
+	WorkspacesDir string
+}
+
+// Register attaches all routes to the given router.
+func Register(r *gin.Engine, d Deps) {
 	r.GET("/healthz", healthz)
 
 	apiG := r.Group("/api")
-	registerProjects(apiG, st)
-	registerAgentMembers(apiG, st)
-	registerLabels(apiG, st)
-	registerIssues(apiG, st)
+	registerProjects(apiG, d.Store)
+	registerAgentMembers(apiG, d)
+	registerLabels(apiG, d.Store)
+	registerIssues(apiG, d.Store)
+	registerRuns(apiG, d)
 
-	// Plugin callback endpoints (phase 3).
-	r.Group("/plugin")
+	pluginG := r.Group("/plugin", pluginAuth(d.Plugin))
+	registerPluginCallbacks(pluginG, d)
 }
 
 func healthz(c *gin.Context) {

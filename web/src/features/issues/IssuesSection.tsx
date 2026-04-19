@@ -1,27 +1,42 @@
 import { useState } from 'react';
+import { RunDetail } from '../runs/RunDetail';
 import { IssueDetail } from './IssueDetail';
 import { IssuesList } from './IssuesList';
 
-// Phase-2 issues section. Keeps its own state for "which issue is open",
-// driven by local state rather than URL — we'll graduate to real router
-// URLs in a later phase.
-export function IssuesSection({ projectId }: { projectId: string }) {
-  const [openIssueId, setOpenIssueId] = useState<string | null>(null);
+type View =
+  | { kind: 'list' }
+  | { kind: 'issue'; id: string }
+  | { kind: 'run'; id: string; fromIssueId: string };
 
-  if (openIssueId) {
+// Phase-3 issues section. Routes between list / issue detail / run
+// detail purely via local state. URL routing comes in a later phase.
+export function IssuesSection({ projectId }: { projectId: string }) {
+  const [view, setView] = useState<View>({ kind: 'list' });
+
+  if (view.kind === 'issue') {
     return (
       <IssueDetail
-        issueId={openIssueId}
-        onBack={() => setOpenIssueId(null)}
-        onOpenIssue={(id) => setOpenIssueId(id)}
+        issueId={view.id}
+        onBack={() => setView({ kind: 'list' })}
+        onOpenIssue={(id) => setView({ kind: 'issue', id })}
+        onOpenRun={(runId) =>
+          setView({ kind: 'run', id: runId, fromIssueId: view.id })
+        }
       />
     );
   }
-
+  if (view.kind === 'run') {
+    return (
+      <RunDetail
+        runId={view.id}
+        onBack={() => setView({ kind: 'issue', id: view.fromIssueId })}
+      />
+    );
+  }
   return (
     <IssuesList
       projectId={projectId}
-      onOpenIssue={(id) => setOpenIssueId(id)}
+      onOpenIssue={(id) => setView({ kind: 'issue', id })}
     />
   );
 }

@@ -1,0 +1,11 @@
+{
+  "name": "worker-echo",
+  "version": "0.1.0",
+  "kind": "worker",
+  "command": "bash",
+  "args": ["${agent.dir}/entrypoint.sh"],
+  "cwd": "${run.workspace}",
+  "protocol": "jsonrpc-stdio",
+  "timeout_ms": 60000,
+  "capabilities": ["worker.run"]
+}

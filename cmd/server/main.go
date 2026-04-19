@@ -15,6 +15,7 @@ import (
 
 	"github.com/Rachelint/agent-community/internal/api"
 	"github.com/Rachelint/agent-community/internal/config"
+	"github.com/Rachelint/agent-community/internal/plugin"
 	"github.com/Rachelint/agent-community/internal/store"
 )
 
@@ -35,11 +36,38 @@ func main() {
 	defer func() { _ = st.Close() }()
 	slog.Info("store ready", "path", dbPath)
 
+	pm, err := plugin.NewManager(
+		plugin.DataDirs{
+			RepoAgentsDir: cfg.RepoAgentsDir,
+			UserAgentsDir: cfg.UserAgentsDir,
+		},
+		cfg.CallbackBaseURL,
+	)
+	if err != nil {
+		slog.Error("init plugin manager", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("plugin manager ready",
+		"repo_agents", cfg.RepoAgentsDir,
+		"user_agents", cfg.UserAgentsDir,
+		"callback", cfg.CallbackBaseURL)
+
+	// Workspace root for spawned runs.
+	workspacesDir := filepath.Join(cfg.DataDir, "workspaces")
+	if err := os.MkdirAll(workspacesDir, 0o755); err != nil {
+		slog.Error("create workspaces dir", "err", err)
+		os.Exit(1)
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	api.Register(r, st)
+	api.Register(r, api.Deps{
+		Store:         st,
+		Plugin:        pm,
+		WorkspacesDir: workspacesDir,
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,

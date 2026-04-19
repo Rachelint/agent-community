@@ -12,6 +12,7 @@ import {
 } from '../../api/hooks';
 import type { Issue } from '../../api/types';
 import { Markdown } from '../../components/Markdown';
+import { DispatchPanel } from '../runs/DispatchPanel';
 import { LabelBadge } from './LabelBadge';
 import { labelTextColor } from './palette';
 
@@ -19,9 +20,10 @@ type Props = {
   issueId: string;
   onBack: () => void;
   onOpenIssue: (id: string) => void;
+  onOpenRun: (runId: string) => void;
 };
 
-export function IssueDetail({ issueId, onBack, onOpenIssue }: Props) {
+export function IssueDetail({ issueId, onBack, onOpenIssue, onOpenRun }: Props) {
   const { data: issue, isLoading } = useIssue(issueId);
 
   if (isLoading || !issue) {
@@ -60,7 +62,7 @@ export function IssueDetail({ issueId, onBack, onOpenIssue }: Props) {
           />
           <CommentsSection issueId={issue.id} />
         </div>
-        <RightPanel issue={issue} />
+        <RightPanel issue={issue} onOpenRun={onOpenRun} />
       </div>
     </div>
   );
@@ -134,7 +136,13 @@ function IssueHeader({ issue }: { issue: Issue }) {
   );
 }
 
-function RightPanel({ issue }: { issue: Issue }) {
+function RightPanel({
+  issue,
+  onOpenRun,
+}: {
+  issue: Issue;
+  onOpenRun: (id: string) => void;
+}) {
   const patch = usePatchIssue(issue.id, issue.project_id);
   const del = useDeleteIssue(issue.project_id);
   const { data: labels } = useLabels(issue.project_id);
@@ -144,7 +152,9 @@ function RightPanel({ issue }: { issue: Issue }) {
   return (
     <aside className="w-64 overflow-y-auto border-l border-border bg-canvas-subtle p-4 text-xs">
       <div className="space-y-4">
-        <div>
+        <DispatchPanel issueId={issue.id} onOpenRun={onOpenRun} />
+
+        <div className="border-t border-border pt-3">
           <div className="mb-1 text-[10px] uppercase text-muted">Status</div>
           <button
             onClick={() =>

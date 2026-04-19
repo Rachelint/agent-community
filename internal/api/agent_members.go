@@ -8,9 +8,9 @@ import (
 	"github.com/Rachelint/agent-community/internal/store"
 )
 
-func registerAgentMembers(g *gin.RouterGroup, st *store.Store) {
+func registerAgentMembers(g *gin.RouterGroup, d Deps) {
 	g.GET("/agent_members", func(c *gin.Context) {
-		ms, err := st.ListAgentMembers(c.Request.Context(), c.Query("kind"))
+		ms, err := d.Store.ListAgentMembers(c.Request.Context(), c.Query("kind"))
 		if err != nil {
 			internalError(c, err)
 			return
@@ -21,13 +21,53 @@ func registerAgentMembers(g *gin.RouterGroup, st *store.Store) {
 		c.JSON(http.StatusOK, ms)
 	})
 
-	// reload will rescan agent.json manifests on disk and reconcile them
-	// with the table. Implemented in phase 3; stubbed now so the client
-	// can wire the UI without a follow-up server change.
+	// Reload reconciles on-disk manifests with the agent_members table.
+	// Policy:
+	//   - Manifests present on disk → UPSERT (enabled preserved if
+	//     already present, defaulted to true otherwise).
+	//   - Registrations whose manifest_path disappeared from disk →
+	//     row kept (historical runs may reference the name) but flagged
+	//     enabled=false so it no longer appears in dispatch selectors.
 	g.POST("/agent_members/reload", func(c *gin.Context) {
-		c.JSON(http.StatusAccepted, gin.H{
-			"status":  "not_implemented",
-			"message": "manifest reload arrives in phase 3",
+		manifests, err := d.Plugin.ScanManifests()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		seen := make(map[string]bool, len(manifests))
+		for _, m := range manifests {
+			seen[m.Name] = true
+			if err := d.Store.UpsertAgentMember(
+				c.Request.Context(), m.Name, m.Kind, m.Path(),
+			); err != nil {
+				internalError(c, err)
+				return
+			}
+		}
+
+		// Disable registrations whose manifest file is missing.
+		existing, err := d.Store.ListAgentMembers(c.Request.Context(), "")
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+		var disabled []string
+		for _, m := range existing {
+			if !m.Enabled {
+				continue
+			}
+			if !seen[m.Name] {
+				if err := d.Store.DisableAgentMember(c.Request.Context(), m.Name); err != nil {
+					internalError(c, err)
+					return
+				}
+				disabled = append(disabled, m.Name)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"loaded":   len(manifests),
+			"disabled": disabled,
 		})
 	})
 }

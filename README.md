@@ -101,4 +101,4 @@ Server listens on `:8080`. In dev the Vite server at `:5173` proxies
 
 ## Roadmap
 
-See `ROADMAP.md` for phase plan. Current phase: **2 — issues**.
+See `ROADMAP.md` for phase plan. Current phase: **3 — agents + worker dispatch**.

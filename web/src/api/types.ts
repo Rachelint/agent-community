@@ -58,3 +58,35 @@ export type IssueFilter = {
   parent?: string; // "" | "null" | issue id
   q?: string;
 };
+
+export type RunStatus =
+  | 'queued'
+  | 'running'
+  | 'needs_review'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'orphan';
+
+export type WorkerRun = {
+  id: string;
+  issue_id: string;
+  project_id: string;
+  plugin: string;
+  status: RunStatus;
+  pid?: number | null;
+  workspace_dir: string;
+  started_at?: number | null;
+  finished_at?: number | null;
+  exit_code?: number | null;
+  mr_url?: string;
+  summary?: string;
+  created_at: number;
+};
+
+export type LogChunk = {
+  stream: 'stdout' | 'stderr' | 'events';
+  from: number;
+  next: number;
+  chunk: string;
+};
