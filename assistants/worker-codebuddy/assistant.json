@@ -1,0 +1,13 @@
+{
+  "name": "worker-codebuddy",
+  "version": "0.1.0",
+  "kind": "worker",
+  "command": "codebuddy",
+  "args": ["--print", "-y", "--model", "claude-opus-4.7-1m"],
+  "cwd": "${run.workspace}/repo",
+  "env": {},
+  "protocol": "jsonrpc-stdio",
+  "timeout_ms": 3600000,
+  "capabilities": ["worker.run"],
+  "prompt_template": "templates/worker_default.md"
+}

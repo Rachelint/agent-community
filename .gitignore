@@ -1,0 +1,40 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+
+# Node
+node_modules/
+web/dist/
+web/.vite/
+.pnpm-debug.log*
+npm-debug.log*
+
+# TS build artifacts (tsc -b emits these alongside sources)
+web/**/*.tsbuildinfo
+web/src/**/*.js
+web/src/**/*.js.map
+web/src/**/*.d.ts
+web/vite.config.js
+web/vite.config.js.map
+web/vite.config.d.ts
+web/tailwind.config.js
+web/postcss.config.d.ts
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local runtime
+/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+/logs/

@@ -1,0 +1,12 @@
+{
+  "name": "chat-codebuddy",
+  "version": "0.1.0",
+  "kind": "chat",
+  "command": "codebuddy",
+  "args": ["--print", "-y"],
+  "cwd": "${topic.dir}",
+  "env": {},
+  "protocol": "jsonrpc-stdio",
+  "timeout_ms": 600000,
+  "capabilities": ["chat.stream"]
+}
