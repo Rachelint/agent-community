@@ -8,7 +8,7 @@
 
 ## Phase 1 — Data layer + projects
 
-- Add sqlc + migrations runner
+- SQLite (modernc.org/sqlite) + embedded migration runner
 - Tables: `projects`, `agent_members` (registry)
 - REST: projects CRUD, agent_members list/reload
 - Web: project switcher in sidebar

@@ -52,9 +52,9 @@ on the next manager sweep.
 
 ### Storage
 
-- **SQLite** (via sqlc) holds all relational state: projects, agent
-  members, topics, messages, issues, labels, comments, worker_runs,
-  notifications.
+- **SQLite** (pure-Go driver) holds all relational state: projects,
+  agent members, topics, messages, issues, labels, comments,
+  worker_runs, notifications.
 - **Filesystem** holds bulky content: per-run workspace (git worktree,
   prompt, artifacts, raw stdout/stderr/events logs).
 
@@ -62,7 +62,7 @@ on the next manager sweep.
 
 | Layer    | Choice                                                   |
 | -------- | -------------------------------------------------------- |
-| Server   | Go 1.24 + Gin + sqlc + SQLite (modernc.org/sqlite)       |
+| Server   | Go 1.24 + Gin + SQLite (modernc.org/sqlite, pure Go)     |
 | Realtime | WebSocket + JSON Patch streams (per-channel)             |
 | UI       | React 18 + Vite + TS, TanStack Router/Query, shadcn/ui   |
 | Theme    | GitHub-style (light, neutral grays, subtle borders)      |
@@ -79,10 +79,8 @@ agent-community/
 │   ├── hub/             # websocket hub
 │   ├── plugin/          # manifest + JSON-RPC + process manager
 │   ├── service/         # domain services
-│   └── store/           # sqlc-generated queries
-├── db/
-│   ├── migrations/      # SQL migrations
-│   └── queries/         # sqlc input
+│   └── store/           # sqlite driver, migrations, queries
+│       └── migrations/  # embedded SQL migrations
 ├── web/                 # React SPA
 ├── agents/              # sample agent manifests
 └── scripts/             # dev helpers
