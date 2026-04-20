@@ -4,6 +4,10 @@
 *.test
 *.out
 
+# Embedded UI build artifacts (populated by `make build`)
+cmd/server/ui/*
+!cmd/server/ui/.gitkeep
+
 # Node
 node_modules/
 web/dist/

@@ -24,6 +24,7 @@ web:
 
 build:
 	cd web && npm run build
+	rm -rf cmd/server/ui && cp -r web/dist cmd/server/ui
 	CGO_ENABLED=0 go build -o bin/agent-community ./cmd/server
 
 tidy:
@@ -31,3 +32,4 @@ tidy:
 
 clean:
 	rm -rf bin web/dist web/node_modules
+	cd cmd/server/ui && find . ! -name '.gitkeep' -type f -delete 2>/dev/null; true
