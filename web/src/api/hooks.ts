@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from './client';
 import type {
   AgentMember,
+  ChatMessage,
+  ChatTopic,
   Issue,
   IssueComment,
   IssueFilter,
@@ -9,6 +11,7 @@ import type {
   LogChunk,
   Notification,
   Project,
+  TopicStatus,
   WorkerRun,
 } from './types';
 
@@ -27,6 +30,9 @@ export const qk = {
   notifications: (pid: string, unread?: boolean) =>
     ['notifications', pid, { unread: unread ?? false }] as const,
   notificationCount: (pid: string) => ['notification_count', pid] as const,
+  topics: (pid: string) => ['topics', pid] as const,
+  topic: (id: string) => ['topic', id] as const,
+  messages: (topicId: string) => ['messages', topicId] as const,
 };
 
 // ---- projects -------------------------------------------------------------
@@ -357,6 +363,85 @@ export function useArchiveNotification(projectId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notifications', projectId] });
       qc.invalidateQueries({ queryKey: qk.notificationCount(projectId) });
+    },
+  });
+}
+
+// ---- chat topics ----------------------------------------------------------
+export function useTopics(projectId: string | null) {
+  return useQuery({
+    enabled: !!projectId,
+    queryKey: qk.topics(projectId ?? ''),
+    queryFn: () => apiFetch<ChatTopic[]>(`/api/projects/${projectId}/topics`),
+  });
+}
+
+export function useTopic(topicId: string | null) {
+  return useQuery({
+    enabled: !!topicId,
+    queryKey: qk.topic(topicId ?? ''),
+    queryFn: () => apiFetch<ChatTopic>(`/api/topics/${topicId}`),
+    refetchInterval: (q) => {
+      const data = q.state.data as ChatTopic | undefined;
+      if (!data) return 5000;
+      return data.status === 'open' ? 5000 : false;
+    },
+  });
+}
+
+export function useMessages(topicId: string | null, topicStatus?: TopicStatus) {
+  return useQuery({
+    enabled: !!topicId,
+    queryKey: qk.messages(topicId ?? ''),
+    queryFn: () => apiFetch<ChatMessage[]>(`/api/topics/${topicId}/messages`),
+    refetchInterval: topicStatus === 'open' ? 2000 : false,
+  });
+}
+
+export function useCreateTopic(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { title: string; plugin: string }) =>
+      apiFetch<ChatTopic>(`/api/projects/${projectId}/topics`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.topics(projectId) }),
+  });
+}
+
+export function useSendMessage(topicId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { content: string }) =>
+      apiFetch<ChatMessage>(`/api/topics/${topicId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: qk.messages(topicId) }),
+  });
+}
+
+export function useCloseTopic() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/topics/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['topics'] });
+      qc.invalidateQueries({ queryKey: ['topic'] });
+    },
+  });
+}
+
+export function useRestartTopic() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ChatTopic>(`/api/topics/${id}/restart`, { method: 'POST' }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: qk.topic(id) });
     },
   });
 }

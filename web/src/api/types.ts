@@ -103,3 +103,25 @@ export type Notification = {
   archived_at?: number | null;
   created_at: number;
 };
+
+export type TopicStatus = 'open' | 'closed';
+
+export type ChatTopic = {
+  id: string;
+  project_id: string;
+  title: string;
+  status: TopicStatus;
+  plugin: string;
+  pid?: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ChatMessage = {
+  id: string;
+  topic_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  in_reply_to?: string | null;
+  created_at: number;
+};

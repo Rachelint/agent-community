@@ -20,6 +20,7 @@ import (
 type Deps struct {
 	Store         *store.Store
 	Plugin        *plugin.Manager
+	Chat          *plugin.ChatManager
 	WorkspacesDir string
 }
 
@@ -34,6 +35,7 @@ func Register(r *gin.Engine, d Deps) {
 	registerIssues(apiG, d.Store)
 	registerRuns(apiG, d)
 	registerNotifications(apiG, d.Store)
+	registerChat(apiG, d)
 
 	pluginG := r.Group("/plugin", pluginAuth(d.Plugin))
 	registerPluginRoutes(pluginG)

@@ -60,6 +60,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Chat manager for long-running chat agent processes.
+	chatMgr := plugin.NewChatManager(st, plugin.DataDirs{
+		RepoAgentsDir: cfg.RepoAgentsDir,
+		UserAgentsDir: cfg.UserAgentsDir,
+	}, cfg.DataDir)
+	if err := chatMgr.RecoverOnStartup(ctx); err != nil {
+		slog.Warn("chat recover on startup", "err", err)
+	}
+
 	// Start the reconciler that polls for done.json / dead processes.
 	rec := reconcile.New(st, pm, 5*time.Second)
 	rec.Run()
@@ -72,6 +81,7 @@ func main() {
 	api.Register(r, api.Deps{
 		Store:         st,
 		Plugin:        pm,
+		Chat:          chatMgr,
 		WorkspacesDir: workspacesDir,
 	})
 

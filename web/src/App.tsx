@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Sidebar, type Section } from './components/Sidebar';
 import { ProjectDetail } from './features/projects/ProjectDetail';
 import { IssuesSection } from './features/issues/IssuesSection';
+import { ChatSection } from './features/chat/ChatSection';
 import { MailboxSection } from './features/mailbox/MailboxSection';
 
 export default function App() {
@@ -31,6 +32,8 @@ export default function App() {
             initialIssueId={selectedIssueId}
             onConsumeInitialIssue={() => setSelectedIssueId(null)}
           />
+        ) : activeSection === 'chat' ? (
+          <ChatSection projectId={activeProjectId} />
         ) : activeSection === 'mailbox' ? (
           <MailboxSection
             projectId={activeProjectId}

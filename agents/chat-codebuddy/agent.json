@@ -4,7 +4,7 @@
   "kind": "chat",
   "command": "codebuddy",
   "args": ["--print", "-y"],
-  "cwd": "${topic.dir}",
+  "cwd": "${brain.dir}",
   "env": {},
   "protocol": "jsonrpc-stdio",
   "timeout_ms": 600000,

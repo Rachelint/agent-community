@@ -26,7 +26,7 @@ export function Sidebar({
         <div className="h-5 w-5 rounded bg-fg" />
         <div className="flex-1">
           <h1 className="text-sm font-semibold leading-none">agent-community</h1>
-          <p className="mt-0.5 text-[10px] text-muted">phase 4</p>
+          <p className="mt-0.5 text-[10px] text-muted">phase 5</p>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -45,8 +45,6 @@ export function Sidebar({
               label="Chat"
               active={activeSection === 'chat'}
               onClick={() => onSelectSection('chat')}
-              disabled
-              hint="phase 5"
             />
             <SectionButton
               label="Mailbox"
