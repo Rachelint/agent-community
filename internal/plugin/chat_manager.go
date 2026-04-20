@@ -26,7 +26,14 @@ type ChatSession struct {
 	PID     int
 	Cmd     *exec.Cmd
 	Stdin   io.WriteCloser
-	mu      sync.Mutex // guards writes to stdin
+	mu      sync.Mutex          // guards writes to stdin
+	draftCh chan *DraftIssue     // buffered(1), receives draft_issue_result
+}
+
+// DraftIssue is an AI-generated issue draft returned by the agent.
+type DraftIssue struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 // ChatManager owns the lifecycle of chat agent processes.
@@ -171,6 +178,20 @@ func (cm *ChatManager) Start(
 				case readyCh <- struct{}{}:
 				default:
 				}
+			case "chat.draft_issue_result":
+				var d DraftIssue
+				if err := json.Unmarshal(msg.Params, &d); err != nil {
+					slog.Warn("chat.draft_issue_result unmarshal", "topic_id", topicID, "err", err)
+					continue
+				}
+				cm.mu.RLock()
+				if s, ok := cm.sessions[topicID]; ok {
+					select {
+					case s.draftCh <- &d:
+					default:
+					}
+				}
+				cm.mu.RUnlock()
 			case "chat.reply":
 				var p struct {
 					InReplyTo string `json:"in_reply_to"`
@@ -230,6 +251,7 @@ func (cm *ChatManager) Start(
 			PID:     pid,
 			Cmd:     cmd,
 			Stdin:   stdin,
+			draftCh: make(chan *DraftIssue, 1),
 		}
 		cm.mu.Lock()
 		cm.sessions[topicID] = session
@@ -265,6 +287,44 @@ func (cm *ChatManager) Send(topicID, messageID, content string) error {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	return json.NewEncoder(sess.Stdin).Encode(payload)
+}
+
+// RequestDraft sends a chat.draft_issue request to the agent and returns
+// synchronously by waiting for a chat.draft_issue_result on stdout.
+func (cm *ChatManager) RequestDraft(topicID string, timeout time.Duration) (*DraftIssue, error) {
+	cm.mu.RLock()
+	sess, ok := cm.sessions[topicID]
+	cm.mu.RUnlock()
+	if !ok {
+		return nil, errors.New("no active session for topic")
+	}
+
+	// Drain any stale result.
+	select {
+	case <-sess.draftCh:
+	default:
+	}
+
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "chat.draft_issue",
+		"params": map[string]any{
+			"topic_id": topicID,
+		},
+	}
+	sess.mu.Lock()
+	err := json.NewEncoder(sess.Stdin).Encode(payload)
+	sess.mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("write chat.draft_issue: %w", err)
+	}
+
+	select {
+	case draft := <-sess.draftCh:
+		return draft, nil
+	case <-time.After(timeout):
+		return nil, errors.New("agent did not respond with draft in time")
+	}
 }
 
 // Close sends SIGTERM to the chat agent and cleans up.

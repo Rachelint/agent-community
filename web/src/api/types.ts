@@ -39,6 +39,7 @@ export type Issue = {
   created_at: number;
   updated_at: number;
   closed_at?: number | null;
+  source_topic_id?: string | null;
   labels: Label[];
   child_count: number;
 };

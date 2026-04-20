@@ -446,6 +446,31 @@ export function useRestartTopic() {
   });
 }
 
+export function useDraftIssue(topicId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ title: string; body: string }>(
+        `/api/topics/${topicId}/draft_issue`,
+        { method: 'POST' },
+      ),
+  });
+}
+
+export function usePublishIssue(topicId: string, projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { title: string; body: string }) =>
+      apiFetch<Issue>(`/api/topics/${topicId}/publish_issue`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['issues', projectId] });
+      qc.invalidateQueries({ queryKey: qk.topic(topicId) });
+    },
+  });
+}
+
 // ---- agents ---------------------------------------------------------------
 export function useReloadAgents() {
   const qc = useQueryClient();

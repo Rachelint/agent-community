@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -259,5 +260,74 @@ func registerChat(g *gin.RouterGroup, d Deps) {
 		}
 		t.PID = &agentPID
 		c.JSON(http.StatusOK, t)
+	})
+
+	// Draft issue from chat topic — asks agent for AI-generated title + body.
+	g.POST("/topics/:id/draft_issue", func(c *gin.Context) {
+		id := c.Param("id")
+		t, err := d.Store.GetTopic(c.Request.Context(), id)
+		if errors.Is(err, store.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "topic not found"})
+			return
+		}
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+		if t.Status != "open" {
+			c.JSON(http.StatusConflict, gin.H{"error": "topic is closed"})
+			return
+		}
+		if !d.Chat.IsAlive(id) {
+			c.JSON(http.StatusConflict, gin.H{"error": "agent not running"})
+			return
+		}
+
+		draft, err := d.Chat.RequestDraft(id, 30*time.Second)
+		if err != nil {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, draft)
+	})
+
+	// Publish issue from chat topic — creates an issue linked to the topic.
+	g.POST("/topics/:id/publish_issue", func(c *gin.Context) {
+		var req struct {
+			Title string `json:"title" binding:"required"`
+			Body  string `json:"body"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			badRequest(c, err.Error())
+			return
+		}
+
+		topicID := c.Param("id")
+		t, err := d.Store.GetTopic(c.Request.Context(), topicID)
+		if errors.Is(err, store.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "topic not found"})
+			return
+		}
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+
+		issueID, err := uuid.NewV7()
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+
+		iss, err := d.Store.CreateIssue(c.Request.Context(), issueID.String(), t.ProjectID, store.IssueCreate{
+			Title:         req.Title,
+			Body:          req.Body,
+			SourceTopicID: &topicID,
+		})
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+		c.JSON(http.StatusCreated, iss)
 	})
 }

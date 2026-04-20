@@ -24,19 +24,21 @@ type Issue struct {
 	CreatedAt  int64   `json:"created_at"`
 	UpdatedAt  int64   `json:"updated_at"`
 	ClosedAt   *int64  `json:"closed_at,omitempty"`
-	Labels     []Label `json:"labels"`
-	ChildCount int     `json:"child_count"`
+	SourceTopicID *string `json:"source_topic_id,omitempty"`
+	Labels        []Label `json:"labels"`
+	ChildCount    int     `json:"child_count"`
 }
 
 // IssueCreate carries fields for inserting a new issue. ParentID is
 // validated by the caller (must be a top-level issue in the same
 // project).
 type IssueCreate struct {
-	Title    string
-	Body     string
-	ParentID *string
-	Assignee *string
-	LabelIDs []string
+	Title         string
+	Body          string
+	ParentID      *string
+	Assignee      *string
+	LabelIDs      []string
+	SourceTopicID *string
 }
 
 // CreateIssue inserts an issue, allocating a new per-project number.
@@ -76,10 +78,10 @@ func (s *Store) CreateIssue(
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO issues (id, project_id, number, parent_id, title, body, status, assignee, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+		INSERT INTO issues (id, project_id, number, parent_id, title, body, status, assignee, source_topic_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)
 	`, id, projectID, number, nullableStringPtr(in.ParentID),
-		in.Title, in.Body, nullableStringPtr(in.Assignee), now, now,
+		in.Title, in.Body, nullableStringPtr(in.Assignee), nullableStringPtr(in.SourceTopicID), now, now,
 	); err != nil {
 		return nil, err
 	}
@@ -114,19 +116,20 @@ func setIssueLabelsTx(ctx context.Context, tx *sql.Tx, issueID string, labelIDs 
 func (s *Store) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT id, project_id, number, parent_id, title, body, status, assignee,
-		       created_at, updated_at, closed_at
+		       source_topic_id, created_at, updated_at, closed_at
 		FROM issues
 		WHERE id = ? AND deleted_at IS NULL
 	`, id)
 	var (
-		iss      Issue
-		parent   sql.NullString
-		assignee sql.NullString
-		closedAt sql.NullInt64
+		iss           Issue
+		parent        sql.NullString
+		assignee      sql.NullString
+		sourceTopicID sql.NullString
+		closedAt      sql.NullInt64
 	)
 	if err := row.Scan(
 		&iss.ID, &iss.ProjectID, &iss.Number, &parent, &iss.Title, &iss.Body,
-		&iss.Status, &assignee, &iss.CreatedAt, &iss.UpdatedAt, &closedAt,
+		&iss.Status, &assignee, &sourceTopicID, &iss.CreatedAt, &iss.UpdatedAt, &closedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -135,6 +138,7 @@ func (s *Store) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	}
 	iss.ParentID = nullStringToPtr(parent)
 	iss.Assignee = nullStringToPtr(assignee)
+	iss.SourceTopicID = nullStringToPtr(sourceTopicID)
 	iss.ClosedAt = nullInt64ToPtr(closedAt)
 	iss.Labels = []Label{}
 
@@ -226,7 +230,7 @@ func (s *Store) ListIssues(ctx context.Context, projectID string, f IssueFilter)
 
 	query := fmt.Sprintf(`
 		SELECT i.id, i.project_id, i.number, i.parent_id, i.title, i.body, i.status, i.assignee,
-		       i.created_at, i.updated_at, i.closed_at
+		       i.source_topic_id, i.created_at, i.updated_at, i.closed_at
 		FROM issues i
 		WHERE %s
 		ORDER BY i.number DESC
@@ -242,19 +246,21 @@ func (s *Store) ListIssues(ctx context.Context, projectID string, f IssueFilter)
 	var ids []string
 	for rows.Next() {
 		var (
-			iss      Issue
-			parent   sql.NullString
-			assignee sql.NullString
-			closedAt sql.NullInt64
+			iss           Issue
+			parent        sql.NullString
+			assignee      sql.NullString
+			sourceTopicID sql.NullString
+			closedAt      sql.NullInt64
 		)
 		if err := rows.Scan(
 			&iss.ID, &iss.ProjectID, &iss.Number, &parent, &iss.Title, &iss.Body,
-			&iss.Status, &assignee, &iss.CreatedAt, &iss.UpdatedAt, &closedAt,
+			&iss.Status, &assignee, &sourceTopicID, &iss.CreatedAt, &iss.UpdatedAt, &closedAt,
 		); err != nil {
 			return nil, err
 		}
 		iss.ParentID = nullStringToPtr(parent)
 		iss.Assignee = nullStringToPtr(assignee)
+		iss.SourceTopicID = nullStringToPtr(sourceTopicID)
 		iss.ClosedAt = nullInt64ToPtr(closedAt)
 		iss.Labels = []Label{}
 		issues = append(issues, iss)
@@ -439,6 +445,59 @@ func (s *Store) SoftDeleteIssue(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ListIssuesByTopic returns issues linked to a chat topic.
+func (s *Store) ListIssuesByTopic(ctx context.Context, topicID string) ([]Issue, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT i.id, i.project_id, i.number, i.parent_id, i.title, i.body, i.status, i.assignee,
+		       i.source_topic_id, i.created_at, i.updated_at, i.closed_at
+		FROM issues i
+		WHERE i.source_topic_id = ? AND i.deleted_at IS NULL
+		ORDER BY i.number DESC
+	`, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var issues []Issue
+	var ids []string
+	for rows.Next() {
+		var (
+			iss           Issue
+			parent        sql.NullString
+			assignee      sql.NullString
+			sourceTopicID sql.NullString
+			closedAt      sql.NullInt64
+		)
+		if err := rows.Scan(
+			&iss.ID, &iss.ProjectID, &iss.Number, &parent, &iss.Title, &iss.Body,
+			&iss.Status, &assignee, &sourceTopicID, &iss.CreatedAt, &iss.UpdatedAt, &closedAt,
+		); err != nil {
+			return nil, err
+		}
+		iss.ParentID = nullStringToPtr(parent)
+		iss.Assignee = nullStringToPtr(assignee)
+		iss.SourceTopicID = nullStringToPtr(sourceTopicID)
+		iss.ClosedAt = nullInt64ToPtr(closedAt)
+		iss.Labels = []Label{}
+		issues = append(issues, iss)
+		ids = append(ids, iss.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(issues) == 0 {
+		return issues, nil
+	}
+	if err := s.attachLabels(ctx, issues, ids); err != nil {
+		return nil, err
+	}
+	if err := s.attachChildCounts(ctx, issues, ids); err != nil {
+		return nil, err
+	}
+	return issues, nil
 }
 
 // ---- tiny helpers ----
