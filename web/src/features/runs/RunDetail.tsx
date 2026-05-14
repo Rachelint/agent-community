@@ -15,11 +15,14 @@ type Props = {
   onBack: () => void;
 };
 
+type LogStreamName = 'stdout' | 'stderr' | 'events';
+
 // Run detail page. Hidden by default; reached by clicking a run row in
 // the issue's right panel. Polls status and stdout incrementally.
 export function RunDetail({ runId, onBack }: Props) {
   const { data: run } = useRun(runId);
   const { data: issue } = useIssue(run?.issue_id ?? null);
+  const [stream, setStream] = useState<LogStreamName>('stdout');
 
   if (!run) {
     return (
@@ -51,12 +54,25 @@ export function RunDetail({ runId, onBack }: Props) {
         <div className="flex h-full gap-4 p-4">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-canvas">
             <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[10px] uppercase text-muted">
-              <span>stdout</span>
+              {(['stdout', 'stderr', 'events'] as LogStreamName[]).map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setStream(name)}
+                  className={`rounded px-1.5 py-0.5 ${
+                    stream === name
+                      ? 'bg-border/60 font-semibold text-fg'
+                      : 'hover:text-fg'
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
               {run.status === 'running' ? (
                 <span className="text-success">· live</span>
               ) : null}
             </div>
-            <LogStream run={run} />
+            <LogStream run={run} stream={stream} />
           </div>
           <aside className="w-60 shrink-0 space-y-3 text-xs">
             <MetaRow label="plugin">{run.plugin}</MetaRow>
@@ -109,9 +125,17 @@ function MetaRow({
   );
 }
 
-function LogStream({ run }: { run: WorkerRun }) {
-  const [text, setText] = useState('');
-  const offsetRef = useRef(0);
+function LogStream({ run, stream }: { run: WorkerRun; stream: LogStreamName }) {
+  const [logs, setLogs] = useState<Record<LogStreamName, string>>({
+    stdout: '',
+    stderr: '',
+    events: '',
+  });
+  const offsetsRef = useRef<Record<LogStreamName, number>>({
+    stdout: 0,
+    stderr: 0,
+    events: 0,
+  });
   const [err, setErr] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLPreElement>(null);
 
@@ -121,14 +145,24 @@ function LogStream({ run }: { run: WorkerRun }) {
   const active = run.status === 'running' || run.status === 'queued';
 
   useEffect(() => {
+    setLogs({ stdout: '', stderr: '', events: '' });
+    offsetsRef.current = { stdout: 0, stderr: 0, events: 0 };
+    setErr(null);
+  }, [run.id]);
+
+  useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
-        const chunk: LogChunk = await fetchLogChunk(run.id, 'stdout', offsetRef.current);
+        const chunk: LogChunk = await fetchLogChunk(
+          run.id,
+          stream,
+          offsetsRef.current[stream],
+        );
         if (cancelled) return;
         if (chunk.chunk) {
-          offsetRef.current = chunk.next;
-          setText((prev) => prev + chunk.chunk);
+          offsetsRef.current[stream] = chunk.next;
+          setLogs((prev) => ({ ...prev, [stream]: prev[stream] + chunk.chunk }));
           // Auto-scroll to bottom if user was already near the end.
           const el = scrollerRef.current;
           if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 40) {
@@ -137,6 +171,7 @@ function LogStream({ run }: { run: WorkerRun }) {
             });
           }
         }
+        setErr(null);
       } catch (e) {
         setErr(String(e));
       }
@@ -148,15 +183,15 @@ function LogStream({ run }: { run: WorkerRun }) {
       cancelled = true;
       clearInterval(id);
     };
-    // rerun when run id changes or the status flips terminal
-  }, [run.id, active]);
+    // rerun when run id changes, stream changes, or the status flips terminal
+  }, [run.id, active, stream]);
 
   return (
     <pre
       ref={scrollerRef}
       className="flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed text-fg"
     >
-      {text || <span className="text-muted">no output yet</span>}
+      {logs[stream] || <span className="text-muted">no output yet</span>}
       {err ? <span className="text-danger">\n{err}</span> : null}
     </pre>
   );

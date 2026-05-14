@@ -63,7 +63,12 @@ export function DispatchPanel({ issueId, onOpenRun }: Props) {
         </select>
         <button
           disabled={!activePlugin || !!running || dispatch.isPending}
-          onClick={() => dispatch.mutate({ plugin: activePlugin })}
+          onClick={() =>
+            dispatch.mutate(
+              { plugin: activePlugin },
+              { onSuccess: (run) => onOpenRun(run.id) },
+            )
+          }
           className="mt-1 w-full rounded-md border border-border bg-accent px-2 py-1 text-xs font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
         >
           {running

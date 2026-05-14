@@ -13,17 +13,17 @@ import (
 // count are attached when loaded via list/get helpers so the frontend
 // can render without a second round trip.
 type Issue struct {
-	ID         string  `json:"id"`
-	ProjectID  string  `json:"project_id"`
-	Number     int     `json:"number"`
-	ParentID   *string `json:"parent_id,omitempty"`
-	Title      string  `json:"title"`
-	Body       string  `json:"body"`
-	Status     string  `json:"status"` // "open" | "closed"
-	Assignee   *string `json:"assignee,omitempty"`
-	CreatedAt  int64   `json:"created_at"`
-	UpdatedAt  int64   `json:"updated_at"`
-	ClosedAt   *int64  `json:"closed_at,omitempty"`
+	ID            string  `json:"id"`
+	ProjectID     string  `json:"project_id"`
+	Number        int     `json:"number"`
+	ParentID      *string `json:"parent_id,omitempty"`
+	Title         string  `json:"title"`
+	Body          string  `json:"body"`
+	Status        string  `json:"status"` // "open" | "closed"
+	Assignee      *string `json:"assignee,omitempty"`
+	CreatedAt     int64   `json:"created_at"`
+	UpdatedAt     int64   `json:"updated_at"`
+	ClosedAt      *int64  `json:"closed_at,omitempty"`
 	SourceTopicID *string `json:"source_topic_id,omitempty"`
 	Labels        []Label `json:"labels"`
 	ChildCount    int     `json:"child_count"`

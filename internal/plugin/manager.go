@@ -298,7 +298,9 @@ func (m *Manager) track(runID string, pid int, cmd *exec.Cmd) {
 	m.runs[runID] = &runtimeRun{RunID: runID, PID: pid, Cmd: cmd}
 }
 
-func (m *Manager) forget(runID string) {
+// Forget removes the in-memory process handle for a run that has reached
+// a terminal state. It does not signal the process.
+func (m *Manager) Forget(runID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.runs, runID)

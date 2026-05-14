@@ -1,4 +1,4 @@
-.PHONY: help deps dev server web build clean tidy
+.PHONY: help deps dev server web build test check clean tidy
 
 help:
 	@echo "Targets:"
@@ -7,6 +7,8 @@ help:
 	@echo "  server   Run Go server only"
 	@echo "  web      Run Vite dev server only"
 	@echo "  build    Build single binary with embedded UI"
+	@echo "  test     Run Go tests"
+	@echo "  check    Run formatting, tests, vet, and web typecheck"
 	@echo "  tidy     go mod tidy"
 	@echo "  clean    Remove build artifacts"
 
@@ -26,6 +28,15 @@ build:
 	cd web && npm run build
 	rm -rf cmd/server/ui && cp -r web/dist cmd/server/ui
 	CGO_ENABLED=0 go build -o bin/agent-community ./cmd/server
+
+test:
+	go test ./...
+
+check:
+	@test -z "$$(gofmt -l $$(git ls-files '*.go'))"
+	go test ./...
+	go vet ./...
+	cd web && npm run typecheck
 
 tidy:
 	go mod tidy

@@ -77,7 +77,7 @@ function NotificationRow({
 }: {
   notification: Notification;
   projectId: string;
-  onSelect: (issueId: string) => void;
+  onSelect: (issueId: string, runId?: string) => void;
 }) {
   const markRead = useMarkNotificationRead(projectId);
   const archive = useArchiveNotification(projectId);
@@ -90,7 +90,7 @@ function NotificationRow({
       } hover:bg-border/30 cursor-pointer`}
       onClick={() => {
         if (notification.issue_id) {
-          onSelect(notification.issue_id);
+          onSelect(notification.issue_id, notification.run_id ?? undefined);
         }
       }}
     >
@@ -139,9 +139,11 @@ function NotificationRow({
 export function MailboxSection({
   projectId,
   onSelectIssue,
+  onSelectRun,
 }: {
   projectId: string;
   onSelectIssue: (issueId: string) => void;
+  onSelectRun: (issueId: string, runId: string) => void;
 }) {
   const [tab, setTab] = useState<'unread' | 'all'>('unread');
   const { data: notifications, isLoading } = useNotifications(
@@ -179,7 +181,13 @@ export function MailboxSection({
               key={n.id}
               notification={n}
               projectId={projectId}
-              onSelect={onSelectIssue}
+              onSelect={(issueId, runId) => {
+                if (runId) {
+                  onSelectRun(issueId, runId);
+                } else {
+                  onSelectIssue(issueId);
+                }
+              }}
             />
           ))
         )}

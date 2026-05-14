@@ -12,6 +12,7 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<Section>('issues');
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // When switching projects, snap back to the issues view.
@@ -39,7 +40,11 @@ export default function App() {
             <IssuesSection
               projectId={activeProjectId}
               initialIssueId={selectedIssueId}
-              onConsumeInitialIssue={() => setSelectedIssueId(null)}
+              initialRunId={selectedRunId}
+              onConsumeInitialNavigation={() => {
+                setSelectedIssueId(null);
+                setSelectedRunId(null);
+              }}
             />
           ) : activeSection === 'chat' ? (
             <ChatSection projectId={activeProjectId} />
@@ -48,6 +53,12 @@ export default function App() {
               projectId={activeProjectId}
               onSelectIssue={(issueId) => {
                 setSelectedIssueId(issueId);
+                setSelectedRunId(null);
+                setActiveSection('issues');
+              }}
+              onSelectRun={(issueId, runId) => {
+                setSelectedIssueId(issueId);
+                setSelectedRunId(runId);
                 setActiveSection('issues');
               }}
             />
@@ -62,6 +73,7 @@ export default function App() {
         projectId={activeProjectId}
         onSelectIssue={(issueId) => {
           setSelectedIssueId(issueId);
+          setSelectedRunId(null);
           setActiveSection('issues');
         }}
         onSelectTopic={() => {

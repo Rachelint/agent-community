@@ -38,7 +38,7 @@ func Register(r *gin.Engine, d Deps) {
 	registerChat(apiG, d)
 
 	pluginG := r.Group("/plugin", pluginAuth(d.Plugin))
-	registerPluginRoutes(pluginG)
+	registerPluginRoutes(pluginG, d)
 }
 
 func healthz(c *gin.Context) {

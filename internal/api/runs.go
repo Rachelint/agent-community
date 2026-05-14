@@ -230,6 +230,8 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			internalError(c, err)
 			return
 		}
+		d.Plugin.Forget(r.ID)
+		_ = d.Store.CreateRunNotification(c.Request.Context(), *r, store.RunCancelled, "cancelled by user", "")
 		c.Status(http.StatusNoContent)
 	})
 
@@ -255,7 +257,7 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 	})
 
 	g.POST("/runs/:id/mark_orphan", func(c *gin.Context) {
-		err := d.Store.MarkRunOrphan(c.Request.Context(), c.Param("id"))
+		run, err := d.Store.GetRun(c.Request.Context(), c.Param("id"))
 		if errors.Is(err, store.ErrNotFound) {
 			badRequest(c, "run is not running or does not exist")
 			return
@@ -264,6 +266,17 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			internalError(c, err)
 			return
 		}
+		err = d.Store.MarkRunOrphan(c.Request.Context(), run.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			badRequest(c, "run is not running or does not exist")
+			return
+		}
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+		d.Plugin.Forget(run.ID)
+		_ = d.Store.CreateRunNotification(c.Request.Context(), *run, store.RunOrphan, "marked orphan by user", "")
 		c.Status(http.StatusNoContent)
 	})
 

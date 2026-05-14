@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// Notification is a mailbox entry. Phase 3 only writes them (on
-// worker_complete/fail); phase 4 adds the read/archive UI.
+// Notification is a mailbox entry for worker lifecycle events and other
+// project-scoped messages.
 type Notification struct {
 	ID         string  `json:"id"`
 	ProjectID  string  `json:"project_id"`
@@ -56,6 +58,30 @@ func (s *Store) CreateNotification(ctx context.Context, id string, in Notificati
 	return n, nil
 }
 
+// CreateRunNotification records a mailbox entry for a worker run state change.
+func (s *Store) CreateRunNotification(ctx context.Context, run WorkerRun, status, summary, mrURL string) error {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	body := summary
+	if mrURL != "" {
+		if body != "" {
+			body += "\n\n"
+		}
+		body += "MR: " + mrURL
+	}
+	_, err = s.CreateNotification(ctx, id.String(), NotificationCreate{
+		ProjectID: run.ProjectID,
+		Kind:      "worker_" + status,
+		IssueID:   run.IssueID,
+		RunID:     run.ID,
+		Title:     run.Plugin + " · " + status,
+		Body:      body,
+	})
+	return err
+}
+
 // ListNotifications returns notifications for a project, newest first.
 // If unreadOnly is true, read_at IS NULL AND archived_at IS NULL.
 func (s *Store) ListNotifications(ctx context.Context, projectID string, unreadOnly bool) ([]Notification, error) {
@@ -77,10 +103,10 @@ func (s *Store) ListNotifications(ctx context.Context, projectID string, unreadO
 	out := []Notification{}
 	for rows.Next() {
 		var (
-			n        Notification
-			issueID  sql.NullString
-			runID    sql.NullString
-			readAt   sql.NullInt64
+			n          Notification
+			issueID    sql.NullString
+			runID      sql.NullString
+			readAt     sql.NullInt64
 			archivedAt sql.NullInt64
 		)
 		if err := rows.Scan(

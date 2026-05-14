@@ -236,9 +236,9 @@ export function useIssueRuns(issueId: string | null) {
     queryFn: () => apiFetch<WorkerRun[]>(`/api/issues/${issueId}/runs`),
     refetchInterval: (q) => {
       const data = q.state.data as WorkerRun[] | undefined;
-      if (!data) return 4000;
+      if (!data) return 1500;
       const active = data.some((r) => !RUN_TERMINAL.has(r.status));
-      return active ? 2000 : false;
+      return active ? 1500 : false;
     },
   });
 }
@@ -250,8 +250,8 @@ export function useRun(runId: string | null) {
     queryFn: () => apiFetch<WorkerRun>(`/api/runs/${runId}`),
     refetchInterval: (q) => {
       const data = q.state.data as WorkerRun | undefined;
-      if (!data) return 2000;
-      return RUN_TERMINAL.has(data.status) ? false : 2000;
+      if (!data) return 1500;
+      return RUN_TERMINAL.has(data.status) ? false : 1500;
     },
   });
 }
@@ -264,8 +264,10 @@ export function useDispatch(issueId: string) {
         method: 'POST',
         body: JSON.stringify(input),
       }),
-    onSuccess: () => {
+    onSuccess: (run) => {
+      qc.setQueryData(qk.run(run.id), run);
       qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) });
+      qc.invalidateQueries({ queryKey: qk.notificationCount(run.project_id) });
     },
   });
 }
@@ -275,7 +277,11 @@ export function useCancelRun(issueId: string) {
   return useMutation({
     mutationFn: (runId: string) =>
       apiFetch<void>(`/api/runs/${runId}/cancel`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) }),
+    onSuccess: (_data, runId) => {
+      qc.invalidateQueries({ queryKey: qk.run(runId) });
+      qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) });
+      qc.invalidateQueries({ queryKey: ['notification_count'] });
+    },
   });
 }
 
@@ -294,7 +300,11 @@ export function useMarkOrphan(issueId: string) {
   return useMutation({
     mutationFn: (runId: string) =>
       apiFetch<void>(`/api/runs/${runId}/mark_orphan`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) }),
+    onSuccess: (_data, runId) => {
+      qc.invalidateQueries({ queryKey: qk.run(runId) });
+      qc.invalidateQueries({ queryKey: qk.issueRuns(issueId) });
+      qc.invalidateQueries({ queryKey: ['notification_count'] });
+    },
   });
 }
 
@@ -333,7 +343,7 @@ export function useNotificationCount(projectId: string | null) {
       apiFetch<{ count: number }>(
         `/api/projects/${projectId}/notifications/count`,
       ),
-    refetchInterval: 15000,
+    refetchInterval: 10000,
   });
 }
 
@@ -428,9 +438,9 @@ export function useCloseTopic() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<void>(`/api/topics/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: ['topics'] });
-      qc.invalidateQueries({ queryKey: ['topic'] });
+      qc.invalidateQueries({ queryKey: qk.topic(id) });
     },
   });
 }
@@ -442,6 +452,7 @@ export function useRestartTopic() {
       apiFetch<ChatTopic>(`/api/topics/${id}/restart`, { method: 'POST' }),
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: qk.topic(id) });
+      qc.invalidateQueries({ queryKey: ['topics'] });
     },
   });
 }
@@ -467,6 +478,8 @@ export function usePublishIssue(topicId: string, projectId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues', projectId] });
       qc.invalidateQueries({ queryKey: qk.topic(topicId) });
+      qc.invalidateQueries({ queryKey: qk.messages(topicId) });
+      qc.invalidateQueries({ queryKey: qk.topics(projectId) });
     },
   });
 }

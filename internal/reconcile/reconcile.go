@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/Rachelint/agent-community/internal/plugin"
 	"github.com/Rachelint/agent-community/internal/store"
 )
@@ -122,15 +120,11 @@ func (r *Reconciler) reconcileRun(ctx context.Context, run store.WorkerRun) {
 	}
 	alive, _ := r.plugin.Probe(run.ID, pid)
 	if !alive {
-		// Process died without writing done.json — mark as failed.
+		// Process died without writing done.json. Keep the result explicit:
+		// mark it orphan so the user can inspect logs before deciding.
 		slog.Info("reconciler: process dead without done.json",
 			"run_id", run.ID, "pid", pid)
-		df := doneFile{
-			Status:   "failed",
-			ExitCode: 1,
-			Summary:  "process exited without writing done.json",
-		}
-		r.finishRun(ctx, run, df)
+		r.markOrphan(ctx, run, "process exited without writing done.json")
 	}
 	// Otherwise still running — skip.
 }
@@ -142,31 +136,27 @@ func (r *Reconciler) finishRun(ctx context.Context, run store.WorkerRun, df done
 		slog.Error("reconciler: finish run", "run_id", run.ID, "err", err)
 		return
 	}
-
-	// Create a notification.
-	nid, err := uuid.NewV7()
-	if err != nil {
+	r.plugin.Forget(run.ID)
+	if err := r.store.CreateRunNotification(ctx, run, status, df.Summary, df.MRURL); err != nil {
+		slog.Error("reconciler: create notification", "run_id", run.ID, "err", err)
 		return
 	}
-	title := run.Plugin + " · " + status
-	body := df.Summary
-	if df.MRURL != "" {
-		if body != "" {
-			body += "\n\n"
-		}
-		body += "MR: " + df.MRURL
-	}
-	_, _ = r.store.CreateNotification(ctx, nid.String(), store.NotificationCreate{
-		ProjectID: run.ProjectID,
-		Kind:      "worker_" + status,
-		IssueID:   run.IssueID,
-		RunID:     run.ID,
-		Title:     title,
-		Body:      body,
-	})
 
 	slog.Info("reconciler: run finished",
 		"run_id", run.ID, "status", status, "exit_code", exitCode)
+}
+
+func (r *Reconciler) markOrphan(ctx context.Context, run store.WorkerRun, summary string) {
+	if err := r.store.MarkRunOrphan(ctx, run.ID); err != nil {
+		slog.Error("reconciler: mark orphan", "run_id", run.ID, "err", err)
+		return
+	}
+	r.plugin.Forget(run.ID)
+	if err := r.store.CreateRunNotification(ctx, run, store.RunOrphan, summary, ""); err != nil {
+		slog.Error("reconciler: create orphan notification", "run_id", run.ID, "err", err)
+		return
+	}
+	slog.Info("reconciler: run orphaned", "run_id", run.ID)
 }
 
 func mapStatus(s string) string {

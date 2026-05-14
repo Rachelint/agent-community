@@ -10,32 +10,32 @@ import (
 // Run statuses. Keep in sync with the CHECK constraint in migration
 // 0003.
 const (
-	RunQueued       = "queued"
-	RunRunning      = "running"
-	RunNeedsReview  = "needs_review"
-	RunCompleted    = "completed"
-	RunFailed       = "failed"
-	RunCancelled    = "cancelled"
-	RunOrphan       = "orphan"
+	RunQueued      = "queued"
+	RunRunning     = "running"
+	RunNeedsReview = "needs_review"
+	RunCompleted   = "completed"
+	RunFailed      = "failed"
+	RunCancelled   = "cancelled"
+	RunOrphan      = "orphan"
 )
 
 // WorkerRun represents one dispatch attempt of a worker agent against
 // an issue. Runs are append-only history; the UI surfaces the most
 // recent ones inside the issue view.
 type WorkerRun struct {
-	ID            string  `json:"id"`
-	IssueID       string  `json:"issue_id"`
-	ProjectID     string  `json:"project_id"`
-	Plugin        string  `json:"plugin"`
-	Status        string  `json:"status"`
-	PID           *int    `json:"pid,omitempty"`
-	WorkspaceDir  string  `json:"workspace_dir"`
-	StartedAt     *int64  `json:"started_at,omitempty"`
-	FinishedAt    *int64  `json:"finished_at,omitempty"`
-	ExitCode      *int    `json:"exit_code,omitempty"`
-	MRURL         string  `json:"mr_url,omitempty"`
-	Summary       string  `json:"summary,omitempty"`
-	CreatedAt     int64   `json:"created_at"`
+	ID           string `json:"id"`
+	IssueID      string `json:"issue_id"`
+	ProjectID    string `json:"project_id"`
+	Plugin       string `json:"plugin"`
+	Status       string `json:"status"`
+	PID          *int   `json:"pid,omitempty"`
+	WorkspaceDir string `json:"workspace_dir"`
+	StartedAt    *int64 `json:"started_at,omitempty"`
+	FinishedAt   *int64 `json:"finished_at,omitempty"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+	MRURL        string `json:"mr_url,omitempty"`
+	Summary      string `json:"summary,omitempty"`
+	CreatedAt    int64  `json:"created_at"`
 }
 
 // RunCreate holds the fields needed at insert time. A just-created run
@@ -197,11 +197,11 @@ FROM worker_runs`
 // Scan signature.
 func scanRun(scan func(...any) error) (*WorkerRun, error) {
 	var (
-		r         WorkerRun
-		pid       sql.NullInt64
-		started   sql.NullInt64
-		finished  sql.NullInt64
-		exitCode  sql.NullInt64
+		r        WorkerRun
+		pid      sql.NullInt64
+		started  sql.NullInt64
+		finished sql.NullInt64
+		exitCode sql.NullInt64
 	)
 	if err := scan(
 		&r.ID, &r.IssueID, &r.ProjectID, &r.Plugin, &r.Status, &pid,

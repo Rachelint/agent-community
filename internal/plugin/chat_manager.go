@@ -26,8 +26,8 @@ type ChatSession struct {
 	PID     int
 	Cmd     *exec.Cmd
 	Stdin   io.WriteCloser
-	mu      sync.Mutex          // guards writes to stdin
-	draftCh chan *DraftIssue     // buffered(1), receives draft_issue_result
+	mu      sync.Mutex       // guards writes to stdin
+	draftCh chan *DraftIssue // buffered(1), receives draft_issue_result
 }
 
 // DraftIssue is an AI-generated issue draft returned by the agent.

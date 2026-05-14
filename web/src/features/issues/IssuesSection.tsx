@@ -13,20 +13,25 @@ type View =
 export function IssuesSection({
   projectId,
   initialIssueId,
-  onConsumeInitialIssue,
+  initialRunId,
+  onConsumeInitialNavigation,
 }: {
   projectId: string;
   initialIssueId?: string | null;
-  onConsumeInitialIssue?: () => void;
+  initialRunId?: string | null;
+  onConsumeInitialNavigation?: () => void;
 }) {
   const [view, setView] = useState<View>({ kind: 'list' });
 
   useEffect(() => {
-    if (initialIssueId) {
+    if (initialIssueId && initialRunId) {
+      setView({ kind: 'run', id: initialRunId, fromIssueId: initialIssueId });
+      onConsumeInitialNavigation?.();
+    } else if (initialIssueId) {
       setView({ kind: 'issue', id: initialIssueId });
-      onConsumeInitialIssue?.();
+      onConsumeInitialNavigation?.();
     }
-  }, [initialIssueId, onConsumeInitialIssue]);
+  }, [initialIssueId, initialRunId, onConsumeInitialNavigation]);
 
   if (view.kind === 'issue') {
     return (

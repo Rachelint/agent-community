@@ -1,0 +1,197 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/Rachelint/agent-community/internal/plugin"
+	"github.com/Rachelint/agent-community/internal/store"
+)
+
+func newTestAPI(t *testing.T) (*gin.Engine, *store.Store, *plugin.Manager) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.sqlite"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	pm, err := plugin.NewManager(plugin.DataDirs{RepoAgentsDir: t.TempDir(), UserAgentsDir: t.TempDir()}, "http://127.0.0.1:8080")
+	if err != nil {
+		t.Fatalf("new plugin manager: %v", err)
+	}
+	r := gin.New()
+	Register(r, Deps{Store: st, Plugin: pm, WorkspacesDir: t.TempDir()})
+	return r, st, pm
+}
+
+func requestJSON(t *testing.T, r http.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestCreateProjectValidatesRepoLocal(t *testing.T) {
+	r, _, _ := newTestAPI(t)
+
+	w := requestJSON(t, r, http.MethodPost, "/api/projects", map[string]string{
+		"name":       "bad",
+		"repo_local": "relative/path",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bad repo status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	w = requestJSON(t, r, http.MethodPost, "/api/projects", map[string]string{
+		"name":           "good",
+		"repo_local":     repo,
+		"default_branch": "main",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("good repo status = %d, want 201: %s", w.Code, w.Body.String())
+	}
+}
+
+func requestPluginJSON(t *testing.T, r http.Handler, token, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestPluginRunCallbacks(t *testing.T) {
+	r, st, pm := newTestAPI(t)
+	ctx := context.Background()
+	project, err := st.CreateProject(ctx, "project-1", store.ProjectCreate{Name: "one", RepoLocal: t.TempDir(), DefaultBranch: "main"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	issue, err := st.CreateIssue(ctx, "issue-1", project.ID, store.IssueCreate{Title: "issue"})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	runDir := t.TempDir()
+	run, err := st.CreateRun(ctx, "run-1", store.RunCreate{IssueID: issue.ID, ProjectID: project.ID, Plugin: "worker-echo", WorkspaceDir: runDir})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := st.MarkRunRunning(ctx, run.ID, 12345); err != nil {
+		t.Fatalf("MarkRunRunning: %v", err)
+	}
+
+	w := requestPluginJSON(t, r, pm.Token(), http.MethodPost, "/plugin/runs/"+run.ID+"/log", map[string]string{
+		"stream": "events",
+		"data":   "{\"event\":\"test\"}\n",
+	})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("log status = %d, want 204: %s", w.Code, w.Body.String())
+	}
+	logData, err := os.ReadFile(filepath.Join(runDir, "events.ndjson"))
+	if err != nil {
+		t.Fatalf("read events log: %v", err)
+	}
+	if string(logData) != "{\"event\":\"test\"}\n" {
+		t.Fatalf("events log = %q", string(logData))
+	}
+
+	w = requestPluginJSON(t, r, pm.Token(), http.MethodPost, "/plugin/runs/"+run.ID+"/complete", map[string]any{
+		"status":    "needs_review",
+		"exit_code": 0,
+		"summary":   "done",
+		"mr_url":    "https://example.invalid/mr/1",
+	})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("complete status = %d, want 204: %s", w.Code, w.Body.String())
+	}
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.Status != store.RunNeedsReview || got.Summary != "done" {
+		t.Fatalf("run after complete = %+v", got)
+	}
+	count, err := st.CountUnreadNotifications(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("CountUnreadNotifications: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("notification count = %d, want 1", count)
+	}
+
+	w = requestPluginJSON(t, r, pm.Token(), http.MethodPost, "/plugin/runs/"+run.ID+"/fail", map[string]any{"summary": "late"})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("late fail status = %d, want 409", w.Code)
+	}
+}
+
+func TestCreateIssueValidatesParentAndLabels(t *testing.T) {
+	r, st, _ := newTestAPI(t)
+	ctx := context.Background()
+	p1, err := st.CreateProject(ctx, "project-1", store.ProjectCreate{Name: "one", RepoLocal: t.TempDir(), DefaultBranch: "main"})
+	if err != nil {
+		t.Fatalf("CreateProject p1: %v", err)
+	}
+	p2, err := st.CreateProject(ctx, "project-2", store.ProjectCreate{Name: "two", RepoLocal: t.TempDir(), DefaultBranch: "main"})
+	if err != nil {
+		t.Fatalf("CreateProject p2: %v", err)
+	}
+	labelOther, err := st.CreateLabel(ctx, "label-other", p2.ID, store.LabelCreate{Name: "foreign", Color: "cccccc"})
+	if err != nil {
+		t.Fatalf("CreateLabel: %v", err)
+	}
+	parent, err := st.CreateIssue(ctx, "issue-parent", p1.ID, store.IssueCreate{Title: "parent"})
+	if err != nil {
+		t.Fatalf("CreateIssue parent: %v", err)
+	}
+	child, err := st.CreateIssue(ctx, "issue-child", p1.ID, store.IssueCreate{Title: "child", ParentID: &parent.ID})
+	if err != nil {
+		t.Fatalf("CreateIssue child: %v", err)
+	}
+
+	w := requestJSON(t, r, http.MethodPost, "/api/projects/"+p1.ID+"/issues", map[string]any{
+		"title":     "grandchild",
+		"parent_id": child.ID,
+	})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "single-level") {
+		t.Fatalf("grandchild status/body = %d/%s, want single-level 400", w.Code, w.Body.String())
+	}
+
+	w = requestJSON(t, r, http.MethodPost, "/api/projects/"+p1.ID+"/issues", map[string]any{
+		"title":  "wrong label",
+		"labels": []string{labelOther.ID},
+	})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "different project") {
+		t.Fatalf("foreign label status/body = %d/%s, want different-project 400", w.Code, w.Body.String())
+	}
+}
