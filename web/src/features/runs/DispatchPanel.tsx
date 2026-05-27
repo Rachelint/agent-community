@@ -158,7 +158,7 @@ function RunRow({
           {run.mr_url}
         </a>
       ) : null}
-      {run.status === 'running' ? (
+      {run.status === 'running' || run.status === 'queued' ? (
         <div className="mt-1 flex items-center gap-1.5 text-[10px]">
           <button
             onClick={() => {

@@ -12,7 +12,8 @@ import (
 	"github.com/Rachelint/agent-community/internal/store"
 )
 
-func registerProjects(g *gin.RouterGroup, st *store.Store) {
+func registerProjects(g *gin.RouterGroup, d Deps) {
+	st := d.Store
 	g.GET("/projects", func(c *gin.Context) {
 		ps, err := st.ListProjects(c.Request.Context())
 		if err != nil {
@@ -39,6 +40,10 @@ func registerProjects(g *gin.RouterGroup, st *store.Store) {
 		// Validate repo_local exists and looks like a git checkout.
 		if err := validateRepoLocal(req.RepoLocal); err != nil {
 			badRequest(c, err.Error())
+			return
+		}
+		if err := d.Plugin.InitProjectContext(req.RepoLocal); err != nil {
+			internalError(c, err)
 			return
 		}
 		id, err := uuid.NewV7()

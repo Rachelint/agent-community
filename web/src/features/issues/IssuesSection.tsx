@@ -39,6 +39,7 @@ export function IssuesSection({
         issueId={view.id}
         onBack={() => setView({ kind: 'list' })}
         onOpenIssue={(id) => setView({ kind: 'issue', id })}
+        onDeleted={() => setView({ kind: 'list' })}
         onOpenRun={(runId) =>
           setView({ kind: 'run', id: runId, fromIssueId: view.id })
         }

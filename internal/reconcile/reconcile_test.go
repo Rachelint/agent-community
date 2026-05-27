@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/Rachelint/agent-community/internal/plugin"
 	"github.com/Rachelint/agent-community/internal/store"
@@ -47,7 +46,7 @@ func newTestReconciler(t *testing.T) (*Reconciler, *store.Store, store.WorkerRun
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	return New(st, pm, time.Hour), st, *running
+	return New(st, pm), st, *running
 }
 
 func TestReconcileDoneJSONFinishesRun(t *testing.T) {

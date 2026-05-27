@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -15,7 +14,6 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
-	"time"
 )
 
 // DataDirs locates the on-disk agent definition directories. The list
@@ -94,6 +92,21 @@ func (m *Manager) LoadManifestByName(name string) (*Manifest, error) {
 	return nil, fmt.Errorf("agent %q not found", name)
 }
 
+// InitProjectContext materializes project-local shared skill links for a repo
+// checkout or git worktree.
+func (m *Manager) InitProjectContext(repoDir string) error {
+	return InitProjectContext(repoDir, m.dirs)
+}
+
+// DefaultInstructions returns the bundled default instructions matching the
+// manifest command and role (chat/worker).
+func (m *Manager) DefaultInstructions(kind string, manifest *Manifest) string {
+	if manifest == nil {
+		return ""
+	}
+	return loadDefaultInstructions(m.dirs, kind, manifest.Command)
+}
+
 // SpawnArgs carries everything needed to kick off a worker run.
 type SpawnArgs struct {
 	Manifest          *Manifest
@@ -107,24 +120,18 @@ type SpawnArgs struct {
 
 // Spawn launches the agent process.
 //
-//   - The process's stdout is line-split and unmarshaled as JSON-RPC
-//     notifications. Only worker.ready is handled inline; everything
-//     else is forwarded to the callback endpoints (the agent is
-//     expected to call /plugin/runs/:id/{log,complete,fail} directly
-//     via HTTP rather than rely on stdout, but we still capture stdout
-//     as a safety net and for debugging).
-//   - The process's stderr is copied to <workspace>/logs/stderr.log.
+//   - The process's stdout and stderr are captured as raw diagnostic logs.
+//   - Worker state is driven by authenticated HTTP callbacks on /plugin/*.
 //
-// Spawn waits up to manifest.Timeout() (capped at 10s here) for the
-// first ready notification, after which it returns with the pid. The
-// caller is responsible for flipping the DB row into 'running'.
+// Spawn returns after the process starts and worker.start has been sent.
+// The caller records the pid while the run remains queued; the worker
+// flips itself to running through the ready callback.
 //
-// readyCtx bounds only how long Spawn is willing to wait for
-// worker.ready. It is *not* tied to the child process lifetime —
-// cancelling readyCtx after Spawn returns will not kill the worker.
-// This is the actor model: once we have a pid, the worker runs on its
-// own until it calls back with completion or the user explicitly
-// cancels.
+// readyCtx bounds only the spawn/startup write path. It is *not* tied to
+// the child process lifetime — cancelling readyCtx after Spawn returns
+// will not kill the worker. This is the actor model: once we have a pid,
+// the worker runs on its own until it calls back with state changes or
+// the user explicitly cancels.
 func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err error) {
 	if a.Manifest == nil {
 		return 0, errors.New("manifest required")
@@ -136,6 +143,7 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 		return 0, err
 	}
 
+	repoDir := filepath.Dir(m.dirs.RepoAgentsDir)
 	vars := map[string]string{
 		"run.id":          a.RunID,
 		"run.workspace":   a.IssueWorkspaceDir, // backwards compat alias
@@ -144,6 +152,7 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 		"brain.dir":       a.BrainDir,
 		"topic.dir":       a.IssueWorkspaceDir, // aliased for chat agents later
 		"agent.dir":       filepath.Dir(a.Manifest.Path()),
+		"repo.dir":        repoDir,
 	}
 	for k, v := range a.Extra {
 		vars[k] = v
@@ -186,110 +195,62 @@ func (m *Manager) Spawn(readyCtx context.Context, a SpawnArgs) (pid int, err err
 	}
 	cmd.Stderr = stderrFile
 
-	if err := cmd.Start(); err != nil {
-		_ = stderrFile.Close()
-		return 0, err
-	}
-
-	// Send worker.start on stdin, then close it.
-	go func() {
-		defer stdin.Close()
-		payload := map[string]any{
-			"jsonrpc": "2.0",
-			"method":  "worker.start",
-			"params": map[string]any{
-				"run_id":       a.RunID,
-				"workspace":    a.IssueWorkspaceDir,
-				"run_dir":      a.RunDir,
-				"brain_dir":    a.BrainDir,
-				"prompt":       a.Prompt,
-				"callback_url": m.callbackURL,
-				"token":        m.token,
-			},
-		}
-		_ = json.NewEncoder(stdin).Encode(payload)
-	}()
-
-	// Open stdout log file for tee-ing.
+	// Open stdout log file before start so the drain goroutine can begin immediately.
 	stdoutFile, err := os.Create(filepath.Join(a.RunDir, "stdout.log"))
 	if err != nil {
-		_ = cmd.Process.Kill()
 		_ = stderrFile.Close()
 		return 0, err
 	}
 
-	readyCh := make(chan struct{}, 1)
-	failCh := make(chan error, 1)
+	if err := readyCtx.Err(); err != nil {
+		_ = stderrFile.Close()
+		_ = stdoutFile.Close()
+		return 0, err
+	}
+	if err := cmd.Start(); err != nil {
+		_ = stderrFile.Close()
+		_ = stdoutFile.Close()
+		return 0, err
+	}
 
-	// Reader goroutine: tee stdout to file AND scan for worker.ready.
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "worker.start",
+		"params": map[string]any{
+			"run_id":       a.RunID,
+			"workspace":    a.IssueWorkspaceDir,
+			"run_dir":      a.RunDir,
+			"brain_dir":    a.BrainDir,
+			"prompt":       a.Prompt,
+			"callback_url": m.callbackURL,
+			"token":        m.token,
+		},
+	}
+	if err := json.NewEncoder(stdin).Encode(payload); err != nil {
+		_ = cmd.Process.Kill()
+		_ = stdin.Close()
+		_ = stderrFile.Close()
+		_ = stdoutFile.Close()
+		return 0, fmt.Errorf("write worker.start: %w", err)
+	}
+	_ = stdin.Close()
+
 	go func() {
 		defer stdoutFile.Close()
-		// Use TeeReader so every byte read by the scanner is also
-		// written to the log file.
-		tee := io.TeeReader(stdoutPipe, stdoutFile)
-		scanner := bufio.NewScanner(tee)
-		scanner.Buffer(make([]byte, 1<<16), 1<<22)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			slog.Debug("plugin stdout", "run_id", a.RunID, "line", string(line))
-			var msg struct {
-				Method string `json:"method"`
-			}
-			if err := json.Unmarshal(line, &msg); err != nil {
-				continue
-			}
-			if msg.Method == "worker.ready" {
-				select {
-				case readyCh <- struct{}{}:
-				default:
-				}
-			}
+		if _, err := io.Copy(stdoutFile, stdoutPipe); err != nil {
+			slog.Debug("copy plugin stdout", "run_id", a.RunID, "err", err)
 		}
 	}()
 
-	// Watcher goroutine: only used to detect early exit before ready.
-	// After Spawn returns, the process runs independently — the
-	// reconciler detects completion via done.json.
 	go func() {
 		err := cmd.Wait()
 		_ = stderrFile.Close()
 		slog.Debug("plugin process exited", "run_id", a.RunID, "err", err)
-		if err != nil {
-			failCh <- fmt.Errorf("process exited: %w", err)
-		} else {
-			failCh <- nil
-		}
 	}()
 
-	// Ready window — 10s max, but allow manifest to shorten it via
-	// timeout_ms (we pick the smaller of the two).
-	maxReady := 10 * time.Second
-	if t := a.Manifest.Timeout(); t < maxReady && t > 0 {
-		maxReady = t
-	}
-	select {
-	case <-readyCtx.Done():
-		// Caller lost patience (usually because the HTTP request's
-		// context was cancelled). Kill the still-initializing process
-		// — we never returned a pid so nobody can track it.
-		_ = cmd.Process.Kill()
-		return 0, readyCtx.Err()
-	case <-readyCh:
-		pid = cmd.Process.Pid
-		m.track(a.RunID, pid, cmd)
-		return pid, nil
-	case err := <-failCh:
-		if err == nil {
-			return 0, errors.New("agent exited before becoming ready")
-		}
-		return 0, err
-	case <-time.After(maxReady):
-		_ = cmd.Process.Kill()
-		return 0, fmt.Errorf("agent did not become ready within %s", maxReady)
-	}
+	pid = cmd.Process.Pid
+	m.track(a.RunID, pid, cmd)
+	return pid, nil
 }
 
 func (m *Manager) track(runID string, pid int, cmd *exec.Cmd) {

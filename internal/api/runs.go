@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -56,15 +57,15 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			return
 		}
 
-		// Guard: at most one running run per issue. The user must
+		// Guard: at most one active run per issue. The user must
 		// cancel or mark_orphan the existing one before starting again.
-		if existing, err := d.Store.RunningRunForIssue(c.Request.Context(), iss.ID); err != nil {
+		if existing, err := d.Store.ActiveRunForIssue(c.Request.Context(), iss.ID); err != nil {
 			internalError(c, err)
 			return
 		} else if existing != nil {
 			c.JSON(http.StatusConflict, gin.H{
-				"error":      "another run is still running for this issue",
-				"running_id": existing.ID,
+				"error":     "another run is still active for this issue",
+				"active_id": existing.ID,
 			})
 			return
 		}
@@ -90,6 +91,10 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 
 		proj, err := d.Store.GetProject(c.Request.Context(), iss.ProjectID)
 		if err != nil {
+			internalError(c, err)
+			return
+		}
+		if err := d.Plugin.InitProjectContext(proj.RepoLocal); err != nil {
 			internalError(c, err)
 			return
 		}
@@ -134,6 +139,10 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 				}
 			}
 		}
+		if err := d.Plugin.InitProjectContext(repoDir); err != nil {
+			internalError(c, err)
+			return
+		}
 
 		prompt := req.Prompt
 		if prompt == "" {
@@ -141,6 +150,9 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			if iss.Body != "" {
 				prompt += "\n\n" + iss.Body
 			}
+		}
+		if instructions := d.Plugin.DefaultInstructions("worker", manifest); instructions != "" {
+			prompt = strings.TrimSpace(instructions) + "\n\n---\n\n" + strings.TrimSpace(prompt)
 		}
 		// Persist the prompt so a failed run still has the input
 		// recorded.
@@ -166,9 +178,8 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			Prompt:            prompt,
 		})
 		if err != nil {
-			// Flip straight to failed; no complete callback will arrive.
+			// Flip straight to failed; no callback will arrive.
 			code := -1
-			_ = d.Store.MarkRunRunning(c.Request.Context(), run.ID, 0)
 			_ = d.Store.FinishRun(c.Request.Context(), run.ID, store.RunFailed, "", err.Error(), &code)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":  "spawn failed",
@@ -177,13 +188,16 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			})
 			return
 		}
-		if err := d.Store.MarkRunRunning(c.Request.Context(), run.ID, pid); err != nil {
+		if err := d.Store.MarkRunSpawned(c.Request.Context(), run.ID, pid); err != nil {
 			internalError(c, err)
 			return
 		}
-		run.Status = store.RunRunning
-		run.PID = &pid
-		c.JSON(http.StatusAccepted, run)
+		latest, err := d.Store.GetRun(c.Request.Context(), run.ID)
+		if err != nil {
+			internalError(c, err)
+			return
+		}
+		c.JSON(http.StatusAccepted, latest)
 	})
 
 	g.GET("/runs/:id", func(c *gin.Context) {
@@ -209,8 +223,8 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 			internalError(c, err)
 			return
 		}
-		if r.Status != store.RunRunning {
-			badRequest(c, "run is not running")
+		if r.Status != store.RunQueued && r.Status != store.RunRunning {
+			badRequest(c, "run is not active")
 			return
 		}
 		pid := 0
@@ -259,7 +273,7 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 	g.POST("/runs/:id/mark_orphan", func(c *gin.Context) {
 		run, err := d.Store.GetRun(c.Request.Context(), c.Param("id"))
 		if errors.Is(err, store.ErrNotFound) {
-			badRequest(c, "run is not running or does not exist")
+			badRequest(c, "run is not active or does not exist")
 			return
 		}
 		if err != nil {
@@ -268,7 +282,7 @@ func registerRuns(g *gin.RouterGroup, d Deps) {
 		}
 		err = d.Store.MarkRunOrphan(c.Request.Context(), run.ID)
 		if errors.Is(err, store.ErrNotFound) {
-			badRequest(c, "run is not running or does not exist")
+			badRequest(c, "run is not active or does not exist")
 			return
 		}
 		if err != nil {

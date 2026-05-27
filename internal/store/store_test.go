@@ -78,6 +78,16 @@ func TestStoreIssueRunAndNotificationWorkflow(t *testing.T) {
 	if run.Status != RunQueued {
 		t.Fatalf("run status = %s, want queued", run.Status)
 	}
+	if err := st.MarkRunSpawned(ctx, run.ID, 12345); err != nil {
+		t.Fatalf("MarkRunSpawned: %v", err)
+	}
+	active, err := st.ActiveRunForIssue(ctx, issue.ID)
+	if err != nil {
+		t.Fatalf("ActiveRunForIssue: %v", err)
+	}
+	if active == nil || active.ID != run.ID || active.Status != RunQueued {
+		t.Fatalf("active run = %+v, want queued %s", active, run.ID)
+	}
 	if err := st.MarkRunRunning(ctx, run.ID, 12345); err != nil {
 		t.Fatalf("MarkRunRunning: %v", err)
 	}
@@ -85,7 +95,7 @@ func TestStoreIssueRunAndNotificationWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunningRunForIssue: %v", err)
 	}
-	if running == nil || running.ID != run.ID {
+	if running == nil || running.ID != run.ID || running.Status != RunRunning {
 		t.Fatalf("running run = %+v, want %s", running, run.ID)
 	}
 
@@ -96,12 +106,12 @@ func TestStoreIssueRunAndNotificationWorkflow(t *testing.T) {
 	if err := st.FinishRun(ctx, run.ID, RunCompleted, "", "again", &exitCode); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second FinishRun error = %v, want ErrNotFound", err)
 	}
-	running, err = st.RunningRunForIssue(ctx, issue.ID)
+	active, err = st.ActiveRunForIssue(ctx, issue.ID)
 	if err != nil {
-		t.Fatalf("RunningRunForIssue after finish: %v", err)
+		t.Fatalf("ActiveRunForIssue after finish: %v", err)
 	}
-	if running != nil {
-		t.Fatalf("running run after finish = %+v, want nil", running)
+	if active != nil {
+		t.Fatalf("active run after finish = %+v, want nil", active)
 	}
 
 	orphan, err := st.CreateRun(ctx, "run-2", RunCreate{

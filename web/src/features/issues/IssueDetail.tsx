@@ -21,9 +21,10 @@ type Props = {
   onBack: () => void;
   onOpenIssue: (id: string) => void;
   onOpenRun: (runId: string) => void;
+  onDeleted: () => void;
 };
 
-export function IssueDetail({ issueId, onBack, onOpenIssue, onOpenRun }: Props) {
+export function IssueDetail({ issueId, onBack, onOpenIssue, onOpenRun, onDeleted }: Props) {
   const { data: issue, isLoading } = useIssue(issueId);
 
   if (isLoading || !issue) {
@@ -50,21 +51,83 @@ export function IssueDetail({ issueId, onBack, onOpenIssue, onOpenRun }: Props) 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto p-6">
           <IssueHeader issue={issue} />
-          <section className="mt-4 rounded-md border border-border bg-canvas p-4">
-            <div className="mb-2 text-[10px] uppercase text-muted">
-              description
-            </div>
-            <Markdown source={issue.body} />
-          </section>
+          <IssuePlan issue={issue} />
           <ChildrenSection
             issue={issue}
             onOpen={onOpenIssue}
           />
           <CommentsSection issueId={issue.id} />
         </div>
-        <RightPanel issue={issue} onOpenRun={onOpenRun} />
+        <RightPanel issue={issue} onOpenRun={onOpenRun} onDeleted={onDeleted} />
       </div>
     </div>
+  );
+}
+
+function IssuePlan({ issue }: { issue: Issue }) {
+  const patch = usePatchIssue(issue.id, issue.project_id);
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(issue.body);
+
+  if (editing) {
+    return (
+      <section className="mt-4 rounded-md border border-border bg-canvas p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] uppercase text-muted">Plan</div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                patch.mutate({ body }, { onSuccess: () => setEditing(false) });
+              }}
+              disabled={patch.isPending}
+              className="rounded-md border border-border bg-accent px-3 py-1 text-xs text-canvas disabled:opacity-50"
+            >
+              save
+            </button>
+            <button
+              onClick={() => {
+                setBody(issue.body);
+                setEditing(false);
+              }}
+              className="rounded-md border border-border px-3 py-1 text-xs text-muted"
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          className="min-h-72 w-full rounded-md border border-border bg-canvas px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+          placeholder="Write the issue plan in markdown..."
+        />
+        {patch.error ? (
+          <p className="mt-2 text-xs text-danger">{(patch.error as Error).message}</p>
+        ) : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-4 rounded-md border border-border bg-canvas p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[10px] uppercase text-muted">Plan</div>
+        <button
+          onClick={() => {
+            setBody(issue.body);
+            setEditing(true);
+          }}
+          className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-fg"
+        >
+          edit plan
+        </button>
+      </div>
+      {issue.body ? (
+        <Markdown source={issue.body} />
+      ) : (
+        <p className="text-xs text-muted">no plan yet</p>
+      )}
+    </section>
   );
 }
 
@@ -139,9 +202,11 @@ function IssueHeader({ issue }: { issue: Issue }) {
 function RightPanel({
   issue,
   onOpenRun,
+  onDeleted,
 }: {
   issue: Issue;
   onOpenRun: (id: string) => void;
+  onDeleted: () => void;
 }) {
   const patch = usePatchIssue(issue.id, issue.project_id);
   const del = useDeleteIssue(issue.project_id);
@@ -227,7 +292,7 @@ function RightPanel({
           <button
             onClick={() => {
               if (confirm(`Delete #${issue.number}?`)) {
-                del.mutate(issue.id);
+                del.mutate(issue.id, { onSuccess: onDeleted });
               }
             }}
             className="w-full rounded-md border border-danger px-2 py-1 text-xs text-danger hover:bg-danger hover:text-canvas"

@@ -1,5 +1,5 @@
-// Package reconcile implements a background loop that detects worker
-// completion by polling for done.json files and dead processes.
+// Package reconcile implements startup recovery for worker runs whose
+// callback may have been missed while the server was down.
 package reconcile
 
 import (
@@ -23,66 +23,25 @@ type doneFile struct {
 	MRURL    string `json:"mr_url,omitempty"`
 }
 
-// Reconciler polls for worker run completions.
+// Reconciler performs a single startup recovery pass.
 type Reconciler struct {
-	store    *store.Store
-	plugin   *plugin.Manager
-	interval time.Duration
-	stop     chan struct{}
-	done     chan struct{}
+	store  *store.Store
+	plugin *plugin.Manager
 }
 
-// New creates a Reconciler. interval controls how often it checks.
-func New(s *store.Store, pm *plugin.Manager, interval time.Duration) *Reconciler {
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-	return &Reconciler{
-		store:    s,
-		plugin:   pm,
-		interval: interval,
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
-	}
+// New creates a startup reconciler.
+func New(s *store.Store, pm *plugin.Manager) *Reconciler {
+	return &Reconciler{store: s, plugin: pm}
 }
 
-// Run starts the reconcile loop in the background. Non-blocking.
-func (r *Reconciler) Run() {
-	go r.loop()
-}
-
-// Stop signals the reconciler to shut down and waits for it to finish.
-func (r *Reconciler) Stop() {
-	close(r.stop)
-	<-r.done
-}
-
-func (r *Reconciler) loop() {
-	defer close(r.done)
-
-	// Run once immediately on startup.
-	r.reconcileOnce()
-
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.stop:
-			return
-		case <-ticker.C:
-			r.reconcileOnce()
-		}
-	}
-}
-
-func (r *Reconciler) reconcileOnce() {
+// RecoverAll checks active runs once during server startup.
+func (r *Reconciler) RecoverAll() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	runs, err := r.store.ListRunningRuns(ctx)
+	runs, err := r.store.ListActiveRuns(ctx)
 	if err != nil {
-		slog.Error("reconciler: list running runs", "err", err)
+		slog.Error("reconciler: list active runs", "err", err)
 		return
 	}
 
@@ -126,7 +85,7 @@ func (r *Reconciler) reconcileRun(ctx context.Context, run store.WorkerRun) {
 			"run_id", run.ID, "pid", pid)
 		r.markOrphan(ctx, run, "process exited without writing done.json")
 	}
-	// Otherwise still running — skip.
+	// Otherwise still active — skip and wait for worker callbacks.
 }
 
 func (r *Reconciler) finishRun(ctx context.Context, run store.WorkerRun, df doneFile) {

@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useProjects } from '../../api/hooks';
+import { useDeleteProject, useProjects } from '../../api/hooks';
 import type { Project } from '../../api/types';
 import { NewProjectForm } from './NewProjectForm';
 
 type Props = {
   activeId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 };
 
 export function ProjectSwitcher({ activeId, onSelect }: Props) {
   const { data, isLoading, error } = useProjects();
+  const del = useDeleteProject();
   const [showForm, setShowForm] = useState(false);
 
   return (
@@ -47,17 +48,34 @@ export function ProjectSwitcher({ activeId, onSelect }: Props) {
       ) : (
         <ul className="flex flex-col">
           {data.map((p) => (
-            <li key={p.id}>
+            <li
+              key={p.id}
+              className={`group flex items-center hover:bg-border/40 ${
+                p.id === activeId ? 'bg-border/60 font-semibold text-fg' : 'text-fg'
+              }`}
+            >
               <button
                 onClick={() => onSelect(p.id)}
-                className={`w-full truncate px-3 py-1.5 text-left text-xs hover:bg-border/40 ${
-                  p.id === activeId
-                    ? 'bg-border/60 font-semibold text-fg'
-                    : 'text-fg'
-                }`}
+                className="min-w-0 flex-1 truncate px-3 py-1.5 text-left text-xs"
                 title={p.repo_local}
               >
                 {p.name}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm(`Delete project ${p.name}?`)) {
+                    del.mutate(p.id, {
+                      onSuccess: () => {
+                        if (p.id === activeId) onSelect(null);
+                      },
+                    });
+                  }
+                }}
+                className="mr-2 hidden rounded px-1 py-0.5 text-[10px] text-muted hover:bg-danger hover:text-canvas group-hover:inline-block"
+                title="delete project"
+              >
+                delete
               </button>
             </li>
           ))}

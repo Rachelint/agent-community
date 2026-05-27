@@ -64,15 +64,15 @@ func main() {
 	chatMgr := plugin.NewChatManager(st, plugin.DataDirs{
 		RepoAgentsDir: cfg.RepoAgentsDir,
 		UserAgentsDir: cfg.UserAgentsDir,
-	}, cfg.DataDir)
+	}, cfg.DataDir, cfg.CallbackBaseURL)
 	if err := chatMgr.RecoverOnStartup(ctx); err != nil {
 		slog.Warn("chat recover on startup", "err", err)
 	}
 
-	// Start the reconciler that polls for done.json / dead processes.
-	rec := reconcile.New(st, pm, 5*time.Second)
-	rec.Run()
-	defer rec.Stop()
+	// Recover active worker runs once at startup. Normal state changes are
+	// driven by worker callbacks, not by server-side polling.
+	rec := reconcile.New(st, pm)
+	rec.RecoverAll()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

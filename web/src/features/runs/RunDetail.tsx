@@ -68,7 +68,7 @@ export function RunDetail({ runId, onBack }: Props) {
                   {name}
                 </button>
               ))}
-              {run.status === 'running' ? (
+              {run.status === 'running' || run.status === 'queued' ? (
                 <span className="text-success">· live</span>
               ) : null}
             </div>
@@ -102,7 +102,7 @@ export function RunDetail({ runId, onBack }: Props) {
                 <p className="whitespace-pre-wrap">{run.summary}</p>
               </MetaRow>
             ) : null}
-            {run.status === 'running' ? <RunControls run={run} /> : null}
+            {run.status === 'running' || run.status === 'queued' ? <RunControls run={run} /> : null}
           </aside>
         </div>
       </div>

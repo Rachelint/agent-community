@@ -29,7 +29,7 @@ func Register(r *gin.Engine, d Deps) {
 	r.GET("/healthz", healthz)
 
 	apiG := r.Group("/api")
-	registerProjects(apiG, d.Store)
+	registerProjects(apiG, d)
 	registerAgentMembers(apiG, d)
 	registerLabels(apiG, d.Store)
 	registerIssues(apiG, d.Store)

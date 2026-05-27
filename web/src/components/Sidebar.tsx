@@ -5,7 +5,7 @@ export type Section = 'issues' | 'chat' | 'mailbox';
 
 type Props = {
   activeProjectId: string | null;
-  onSelectProject: (id: string) => void;
+  onSelectProject: (id: string | null) => void;
   activeSection: Section;
   onSelectSection: (s: Section) => void;
 };

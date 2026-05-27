@@ -88,11 +88,11 @@ func (s *Store) ListRunsByIssue(ctx context.Context, issueID string) ([]WorkerRu
 	return out, rows.Err()
 }
 
-// RunningRunForIssue returns the currently running run for an issue,
-// or nil if none. Used by dispatch to enforce one-at-a-time.
-func (s *Store) RunningRunForIssue(ctx context.Context, issueID string) (*WorkerRun, error) {
+// ActiveRunForIssue returns the currently active run for an issue,
+// or nil if none. queued and running both occupy the issue slot.
+func (s *Store) ActiveRunForIssue(ctx context.Context, issueID string) (*WorkerRun, error) {
 	row := s.DB.QueryRowContext(ctx, runSelect+`
-		WHERE issue_id = ? AND status = 'running' LIMIT 1
+		WHERE issue_id = ? AND status IN ('queued', 'running') LIMIT 1
 	`, issueID)
 	r, err := scanRun(row.Scan)
 	if errors.Is(err, ErrNotFound) {
@@ -101,26 +101,59 @@ func (s *Store) RunningRunForIssue(ctx context.Context, issueID string) (*Worker
 	return r, err
 }
 
-// MarkRunRunning sets status=running, stamps started_at, and records pid.
-// Safe to call only on a queued run; no-op otherwise.
-func (s *Store) MarkRunRunning(ctx context.Context, id string, pid int) error {
-	now := time.Now().UnixMilli()
+// RunningRunForIssue returns the currently active run for compatibility
+// with older call sites. queued and running both occupy the issue slot.
+func (s *Store) RunningRunForIssue(ctx context.Context, issueID string) (*WorkerRun, error) {
+	return s.ActiveRunForIssue(ctx, issueID)
+}
+
+// MarkRunSpawned records the spawned worker pid while the run is active.
+func (s *Store) MarkRunSpawned(ctx context.Context, id string, pid int) error {
 	res, err := s.DB.ExecContext(ctx, `
 		UPDATE worker_runs
-		SET status='running', started_at=?, pid=?
-		WHERE id=? AND status='queued'
-	`, now, pid, id)
+		SET pid=?
+		WHERE id=? AND status IN ('queued', 'running')
+	`, pid, id)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
+	if n > 0 {
+		return nil
+	}
+	if _, err := s.GetRun(ctx, id); err != nil {
+		return err
 	}
 	return nil
 }
 
-// FinishRun moves a running run into a terminal status. Caller supplies
+// MarkRunRunning sets status=running and stamps started_at. It is
+// idempotent for an already-running run so duplicate ready callbacks are harmless.
+func (s *Store) MarkRunRunning(ctx context.Context, id string, pid int) error {
+	now := time.Now().UnixMilli()
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE worker_runs
+		SET status='running', started_at=COALESCE(started_at, ?), pid=CASE WHEN ? != 0 THEN ? ELSE pid END
+		WHERE id=? AND status='queued'
+	`, now, pid, pid, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		return nil
+	}
+	r, err := s.GetRun(ctx, id)
+	if err != nil {
+		return err
+	}
+	if r.Status == RunRunning {
+		return nil
+	}
+	return ErrNotFound
+}
+
+// FinishRun moves an active run into a terminal status. Caller supplies
 // the final status (completed / failed / cancelled). mrURL and summary
 // are taken from the worker's complete callback when present.
 func (s *Store) FinishRun(
@@ -136,7 +169,7 @@ func (s *Store) FinishRun(
 	res, err := s.DB.ExecContext(ctx, `
 		UPDATE worker_runs
 		SET status=?, finished_at=?, exit_code=?, mr_url=?, summary=?, pid=NULL
-		WHERE id=? AND status='running'
+		WHERE id=? AND status IN ('queued', 'running')
 	`, status, now, ec, nullableString(mrURL), nullableString(summary), id)
 	if err != nil {
 		return err
@@ -148,14 +181,14 @@ func (s *Store) FinishRun(
 	return nil
 }
 
-// MarkRunOrphan transitions a running run to orphan. Only allowed for
-// status=running, so double-clicks from the UI are idempotent.
+// MarkRunOrphan transitions an active run to orphan. Only allowed for
+// queued/running, so double-clicks from the UI are idempotent.
 func (s *Store) MarkRunOrphan(ctx context.Context, id string) error {
 	now := time.Now().UnixMilli()
 	res, err := s.DB.ExecContext(ctx, `
 		UPDATE worker_runs
 		SET status='orphan', finished_at=?, pid=NULL
-		WHERE id=? AND status='running'
+		WHERE id=? AND status IN ('queued', 'running')
 	`, now, id)
 	if err != nil {
 		return err
@@ -167,9 +200,9 @@ func (s *Store) MarkRunOrphan(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListRunningRuns returns all runs with status='running'.
-func (s *Store) ListRunningRuns(ctx context.Context) ([]WorkerRun, error) {
-	rows, err := s.DB.QueryContext(ctx, runSelect+` WHERE status = 'running'`)
+// ListActiveRuns returns all runs with status='queued' or status='running'.
+func (s *Store) ListActiveRuns(ctx context.Context) ([]WorkerRun, error) {
+	rows, err := s.DB.QueryContext(ctx, runSelect+` WHERE status IN ('queued', 'running')`)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +216,11 @@ func (s *Store) ListRunningRuns(ctx context.Context) ([]WorkerRun, error) {
 		out = append(out, *r)
 	}
 	return out, rows.Err()
+}
+
+// ListRunningRuns returns all active runs for compatibility with older call sites.
+func (s *Store) ListRunningRuns(ctx context.Context) ([]WorkerRun, error) {
+	return s.ListActiveRuns(ctx)
 }
 
 // ---- helpers --------------------------------------------------------------
