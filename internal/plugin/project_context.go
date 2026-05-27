@@ -16,7 +16,7 @@ func InitProjectContext(repoDir string, dirs DataDirs) error {
 	if repoDir == "" {
 		return nil
 	}
-	sharedSkillsDir := filepath.Join(dirs.RepoAgentsDir, "shared-skills")
+	sharedSkillsDir := filepath.Join(filepath.Dir(dirs.RepoAgentsDir), "skills")
 	info, err := os.Stat(sharedSkillsDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

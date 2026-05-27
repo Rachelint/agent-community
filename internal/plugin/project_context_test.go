@@ -12,12 +12,16 @@ func TestInitProjectContextCreatesSkillLinksAndExclude(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "info"), 0o755); err != nil {
 		t.Fatalf("mkdir .git/info: %v", err)
 	}
-	agentsDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(agentsDir, "shared-skills", "issue-plan"), 0o755); err != nil {
-		t.Fatalf("mkdir shared-skills: %v", err)
+	repoRoot := t.TempDir()
+	agentsDir := filepath.Join(repoRoot, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentsDir, "shared-skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
-		t.Fatalf("write shared skill: %v", err)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "skills", "issue-plan"), 0o755); err != nil {
+		t.Fatalf("mkdir skills: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
 	}
 	dirs := DataDirs{RepoAgentsDir: agentsDir}
 
@@ -41,7 +45,7 @@ func TestInitProjectContextCreatesSkillLinksAndExclude(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readlink %s: %v", rel, err)
 		}
-		if !sameCleanPath(target, filepath.Join(agentsDir, "shared-skills")) {
+		if !sameCleanPath(target, filepath.Join(repoRoot, "skills")) {
 			t.Fatalf("%s target = %s", rel, target)
 		}
 	}
@@ -73,12 +77,16 @@ func TestInitProjectContextSupportsWorktreeGitFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoDir, ".git"), []byte("gitdir: ../gitdir\n"), 0o644); err != nil {
 		t.Fatalf("write .git file: %v", err)
 	}
-	agentsDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(agentsDir, "shared-skills", "issue-plan"), 0o755); err != nil {
-		t.Fatalf("mkdir shared-skills: %v", err)
+	repoRoot := t.TempDir()
+	agentsDir := filepath.Join(repoRoot, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentsDir, "shared-skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
-		t.Fatalf("write shared skill: %v", err)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "skills", "issue-plan"), 0o755); err != nil {
+		t.Fatalf("mkdir skills: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
 	}
 
 	if err := InitProjectContext(repoDir, DataDirs{RepoAgentsDir: agentsDir}); err != nil {

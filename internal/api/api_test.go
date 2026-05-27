@@ -19,12 +19,16 @@ import (
 
 func newTestAPI(t *testing.T) (*gin.Engine, *store.Store, *plugin.Manager) {
 	t.Helper()
-	repoAgentsDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoAgentsDir, "shared-skills", "issue-plan"), 0o755); err != nil {
-		t.Fatalf("mkdir shared skills: %v", err)
+	repoRoot := t.TempDir()
+	repoAgentsDir := filepath.Join(repoRoot, "agents")
+	if err := os.MkdirAll(repoAgentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repoAgentsDir, "shared-skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
-		t.Fatalf("write shared skill: %v", err)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "skills", "issue-plan"), 0o755); err != nil {
+		t.Fatalf("mkdir skills: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
 	}
 	return newTestAPIWithRepoAgents(t, repoAgentsDir)
 }
@@ -87,12 +91,16 @@ func TestCreateProjectValidatesRepoLocal(t *testing.T) {
 }
 
 func TestCreateProjectInitializesRepoContext(t *testing.T) {
-	repoAgentsDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoAgentsDir, "shared-skills", "issue-plan"), 0o755); err != nil {
-		t.Fatalf("mkdir shared skills: %v", err)
+	repoRoot := t.TempDir()
+	repoAgentsDir := filepath.Join(repoRoot, "agents")
+	if err := os.MkdirAll(repoAgentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repoAgentsDir, "shared-skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
-		t.Fatalf("write shared skill: %v", err)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "skills", "issue-plan"), 0o755); err != nil {
+		t.Fatalf("mkdir skills: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "skills", "issue-plan", "SKILL.md"), []byte("skill"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
 	}
 	r, _, _ := newTestAPIWithRepoAgents(t, repoAgentsDir)
 

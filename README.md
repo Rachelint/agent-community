@@ -30,9 +30,9 @@ Three UI sections, all scoped per project:
 
 Both chat and worker agents are external processes described by a JSON manifest
 under `agents/<name>/agent.json` or `~/.agent-community/agents/<name>/agent.json`.
-Bundled chat agents can load Markdown skills from `agents/<name>/skills/**/*.md`;
-for example, `chat-codebuddy` has an issue-plan skill that explains how to edit
-an issue's Markdown plan through the local API.
+Bundled chat agents can load Markdown skills from `agents/<name>/skills/**/*.md`.
+Shared platform skills live under `skills/<name>/SKILL.md` and are symlinked into
+project contexts under `.codebuddy/skills` and `.claude/skills`.
 
 Example worker manifest:
 
