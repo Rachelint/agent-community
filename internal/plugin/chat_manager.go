@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -26,14 +28,7 @@ type ChatSession struct {
 	PID     int
 	Cmd     *exec.Cmd
 	Stdin   io.WriteCloser
-	mu      sync.Mutex       // guards writes to stdin
-	draftCh chan *DraftIssue // buffered(1), receives draft_issue_result
-}
-
-// DraftIssue is an AI-generated issue draft returned by the agent.
-type DraftIssue struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	mu      sync.Mutex // guards writes to stdin
 }
 
 // ChatManager owns the lifecycle of chat agent processes.
@@ -43,17 +38,19 @@ type ChatManager struct {
 	store    *store.Store
 	dirs     DataDirs
 	dataDir  string // e.g. ~/.agent-community, used for topics/<id>/ state dirs
+	baseURL  string // e.g. http://127.0.0.1:8080
 }
 
 // NewChatManager constructs a ChatManager. dataDir is the application
 // data directory (e.g. ~/.agent-community) where per-topic state
 // directories are created.
-func NewChatManager(st *store.Store, dirs DataDirs, dataDir string) *ChatManager {
+func NewChatManager(st *store.Store, dirs DataDirs, dataDir, baseURL string) *ChatManager {
 	return &ChatManager{
 		sessions: make(map[string]*ChatSession),
 		store:    st,
 		dirs:     dirs,
 		dataDir:  dataDir,
+		baseURL:  baseURL,
 	}
 }
 
@@ -74,6 +71,9 @@ func (cm *ChatManager) Start(
 	topicStateDir := filepath.Join(cm.dataDir, "topics", topicID)
 	if err := os.MkdirAll(topicStateDir, 0o755); err != nil {
 		return 0, fmt.Errorf("create topic state dir: %w", err)
+	}
+	if err := InitProjectContext(projectDir, cm.dirs); err != nil {
+		return 0, fmt.Errorf("init project context: %w", err)
 	}
 
 	vars := map[string]string{
@@ -101,7 +101,7 @@ func (cm *ChatManager) Start(
 
 	cmd := exec.Command(manifest.Command, args...)
 	cmd.Dir = cwd
-	cmd.Env = buildChatEnv(manifest, topicID, topicStateDir, projectDir)
+	cmd.Env = buildChatEnv(manifest, topicID, topicStateDir, projectDir, cm.baseURL)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -128,7 +128,10 @@ func (cm *ChatManager) Start(
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
-	histEntries := make([]historyEntry, 0, len(history))
+	histEntries := make([]historyEntry, 0, len(history)+1)
+	if instructions := loadDefaultInstructions(cm.dirs, "chat", manifest.Command); instructions != "" {
+		histEntries = append(histEntries, historyEntry{Role: "system", Content: instructions})
+	}
 	for _, m := range history {
 		histEntries = append(histEntries, historyEntry{Role: m.Role, Content: m.Content})
 	}
@@ -178,20 +181,6 @@ func (cm *ChatManager) Start(
 				case readyCh <- struct{}{}:
 				default:
 				}
-			case "chat.draft_issue_result":
-				var d DraftIssue
-				if err := json.Unmarshal(msg.Params, &d); err != nil {
-					slog.Warn("chat.draft_issue_result unmarshal", "topic_id", topicID, "err", err)
-					continue
-				}
-				cm.mu.RLock()
-				if s, ok := cm.sessions[topicID]; ok {
-					select {
-					case s.draftCh <- &d:
-					default:
-					}
-				}
-				cm.mu.RUnlock()
 			case "chat.reply":
 				var p struct {
 					InReplyTo string `json:"in_reply_to"`
@@ -251,7 +240,6 @@ func (cm *ChatManager) Start(
 			PID:     pid,
 			Cmd:     cmd,
 			Stdin:   stdin,
-			draftCh: make(chan *DraftIssue, 1),
 		}
 		cm.mu.Lock()
 		cm.sessions[topicID] = session
@@ -287,44 +275,6 @@ func (cm *ChatManager) Send(topicID, messageID, content string) error {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	return json.NewEncoder(sess.Stdin).Encode(payload)
-}
-
-// RequestDraft sends a chat.draft_issue request to the agent and returns
-// synchronously by waiting for a chat.draft_issue_result on stdout.
-func (cm *ChatManager) RequestDraft(topicID string, timeout time.Duration) (*DraftIssue, error) {
-	cm.mu.RLock()
-	sess, ok := cm.sessions[topicID]
-	cm.mu.RUnlock()
-	if !ok {
-		return nil, errors.New("no active session for topic")
-	}
-
-	// Drain any stale result.
-	select {
-	case <-sess.draftCh:
-	default:
-	}
-
-	payload := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "chat.draft_issue",
-		"params": map[string]any{
-			"topic_id": topicID,
-		},
-	}
-	sess.mu.Lock()
-	err := json.NewEncoder(sess.Stdin).Encode(payload)
-	sess.mu.Unlock()
-	if err != nil {
-		return nil, fmt.Errorf("write chat.draft_issue: %w", err)
-	}
-
-	select {
-	case draft := <-sess.draftCh:
-		return draft, nil
-	case <-time.After(timeout):
-		return nil, errors.New("agent did not respond with draft in time")
-	}
 }
 
 // Close sends SIGTERM to the chat agent and cleans up.
@@ -388,12 +338,14 @@ func (cm *ChatManager) LoadManifestByName(name string) (*Manifest, error) {
 }
 
 // buildChatEnv composes the env slice for a chat agent process.
-func buildChatEnv(manifest *Manifest, topicID, topicStateDir, projectDir string) []string {
+func buildChatEnv(manifest *Manifest, topicID, topicStateDir, projectDir, baseURL string) []string {
 	env := os.Environ()
 	env = append(env,
 		"AC_RUN_ID="+topicID,
 		"AC_TOPIC_DIR="+topicStateDir,
 		"AC_BRAIN_DIR="+projectDir,
+		"AC_CALLBACK_URL="+baseURL,
+		"AC_API_URL="+baseURL+"/api",
 	)
 	vars := map[string]string{
 		"topic.dir": topicStateDir,
@@ -407,4 +359,27 @@ func buildChatEnv(manifest *Manifest, topicID, topicStateDir, projectDir string)
 		env = append(env, k+"="+expanded)
 	}
 	return env
+}
+
+func loadAgentSkills(manifest *Manifest) string {
+	skillsDir := filepath.Join(filepath.Dir(manifest.Path()), "skills")
+	var out []string
+	if err := filepath.WalkDir(skillsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			slog.Warn("read chat skill", "path", path, "err", err)
+			return nil
+		}
+		out = append(out, string(data))
+		return nil
+	}); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.Warn("walk chat skills", "dir", skillsDir, "err", err)
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return "Chat agent skills loaded from " + skillsDir + ":\n\n" + strings.Join(out, "\n\n---\n\n")
 }

@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   useCloseTopic,
-  useDraftIssue,
   useMessages,
-  usePublishIssue,
   useRestartTopic,
   useSendMessage,
   useTopic,
@@ -22,13 +20,8 @@ export function ChatPane({ topicId, onBack }: Props) {
   const sendMsg = useSendMessage(topicId);
   const closeTopic = useCloseTopic();
   const restartTopic = useRestartTopic();
-  const draftIssue = useDraftIssue(topicId);
-  const publishIssue = usePublishIssue(topicId, topic?.project_id ?? '');
 
   const [input, setInput] = useState('');
-  const [showDraftModal, setShowDraftModal] = useState(false);
-  const [draftTitle, setDraftTitle] = useState('');
-  const [draftBody, setDraftBody] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(0);
 
@@ -121,29 +114,6 @@ export function ChatPane({ topicId, onBack }: Props) {
         {isOpen ? (
           <button
             onClick={() => {
-              draftIssue.mutate(undefined, {
-                onSuccess: (data) => {
-                  setDraftTitle(data.title);
-                  setDraftBody(data.body);
-                  setShowDraftModal(true);
-                },
-                onError: () => {
-                  // Agent didn't respond — let user write manually.
-                  setDraftTitle('');
-                  setDraftBody('');
-                  setShowDraftModal(true);
-                },
-              });
-            }}
-            disabled={draftIssue.isPending || !agentAlive}
-            className="rounded-md border border-border px-2 py-1 text-xs text-accent hover:bg-border/40 disabled:opacity-50"
-          >
-            {draftIssue.isPending ? 'Drafting...' : 'Publish as Issue'}
-          </button>
-        ) : null}
-        {isOpen ? (
-          <button
-            onClick={() => {
               if (confirm('Close this topic? The agent will be terminated.')) {
                 closeTopic.mutate(topicId);
               }
@@ -216,62 +186,6 @@ export function ChatPane({ topicId, onBack }: Props) {
           </button>
         </div>
       </div>
-
-      {/* Draft Issue Modal */}
-      {showDraftModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="mx-4 w-full max-w-lg rounded-lg border border-border bg-canvas p-4 shadow-lg">
-            <h3 className="mb-3 text-sm font-semibold">Publish as Issue</h3>
-            <input
-              value={draftTitle}
-              onChange={(e) => setDraftTitle(e.target.value)}
-              placeholder="Issue title..."
-              className="mb-2 w-full rounded-md border border-border bg-canvas px-2 py-1.5 text-xs outline-none focus:border-accent"
-              autoFocus
-            />
-            <textarea
-              value={draftBody}
-              onChange={(e) => setDraftBody(e.target.value)}
-              placeholder="Issue body..."
-              rows={8}
-              className="mb-3 w-full resize-none rounded-md border border-border bg-canvas px-2 py-1.5 text-xs outline-none focus:border-accent"
-            />
-            {publishIssue.isError ? (
-              <p className="mb-2 text-xs text-danger">
-                {String(publishIssue.error)}
-              </p>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowDraftModal(false)}
-                disabled={publishIssue.isPending}
-                className="rounded-md border border-border px-3 py-1 text-xs text-muted hover:text-fg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (!draftTitle.trim()) return;
-                  publishIssue.mutate(
-                    { title: draftTitle.trim(), body: draftBody },
-                    {
-                      onSuccess: () => {
-                        setShowDraftModal(false);
-                        setDraftTitle('');
-                        setDraftBody('');
-                      },
-                    },
-                  );
-                }}
-                disabled={!draftTitle.trim() || publishIssue.isPending}
-                className="rounded-md border border-border bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
-              >
-                {publishIssue.isPending ? 'Publishing...' : 'Publish'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

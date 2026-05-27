@@ -65,7 +65,12 @@ export function useDeleteProject() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<void>(`/api/projects/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.projects }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.projects });
+      qc.invalidateQueries({ queryKey: ['issues'] });
+      qc.invalidateQueries({ queryKey: ['topics'] });
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+    },
   });
 }
 
@@ -453,33 +458,6 @@ export function useRestartTopic() {
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: qk.topic(id) });
       qc.invalidateQueries({ queryKey: ['topics'] });
-    },
-  });
-}
-
-export function useDraftIssue(topicId: string) {
-  return useMutation({
-    mutationFn: () =>
-      apiFetch<{ title: string; body: string }>(
-        `/api/topics/${topicId}/draft_issue`,
-        { method: 'POST' },
-      ),
-  });
-}
-
-export function usePublishIssue(topicId: string, projectId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { title: string; body: string }) =>
-      apiFetch<Issue>(`/api/topics/${topicId}/publish_issue`, {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['issues', projectId] });
-      qc.invalidateQueries({ queryKey: qk.topic(topicId) });
-      qc.invalidateQueries({ queryKey: qk.messages(topicId) });
-      qc.invalidateQueries({ queryKey: qk.topics(projectId) });
     },
   });
 }
